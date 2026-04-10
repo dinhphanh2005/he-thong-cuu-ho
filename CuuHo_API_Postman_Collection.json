@@ -1,0 +1,722 @@
+{
+  "info": {
+    "name": "🚨 CuuHo Giao Thong API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "📁 AUTH",
+      "item": [
+        {
+          "name": "1. [DEV] Tạo Admin",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 201', () => pm.response.to.have.status(201));",
+            "console.log('✅ Admin tạo xong — email: admin@cuuho.vn | pass: 123456');"
+          ]}}],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "url": "{{base_url}}/auth/dev/create-admin"
+          }
+        },
+        {
+          "name": "2. Register Citizen",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 201', () => pm.response.to.have.status(201));",
+            "const res = pm.response.json();",
+            "if (res.accessToken) {",
+            "  pm.environment.set('access_token', res.accessToken);",
+            "  pm.environment.set('refresh_token', res.refreshToken);",
+            "  console.log('✅ Citizen token saved | role:', res.data?.role);",
+            "}"
+          ]}}],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Nguyễn Văn A\",\n  \"email\": \"citizen@test.com\",\n  \"phone\": \"0901234567\",\n  \"password\": \"123456\"\n}"
+            },
+            "url": "{{base_url}}/auth/register"
+          }
+        },
+        {
+          "name": "3. Login Citizen",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "const res = pm.response.json();",
+            "if (res.accessToken) {",
+            "  pm.environment.set('access_token', res.accessToken);",
+            "  pm.environment.set('refresh_token', res.refreshToken);",
+            "  console.log('✅ Logged in as:', res.data?.role, '|', res.data?.name);",
+            "}"
+          ]}}],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"loginId\": \"citizen@test.com\",\n  \"password\": \"123456\"\n}"
+            },
+            "url": "{{base_url}}/auth/login"
+          }
+        },
+        {
+          "name": "4. Login Admin",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "const res = pm.response.json();",
+            "if (res.accessToken) {",
+            "  pm.environment.set('access_token', res.accessToken);",
+            "  pm.environment.set('refresh_token', res.refreshToken);",
+            "  console.log('✅ Logged in as:', res.data?.role, '|', res.data?.name);",
+            "}"
+          ]}}],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"loginId\": \"admin@cuuho.vn\",\n  \"password\": \"123456\"\n}"
+            },
+            "url": "{{base_url}}/auth/login"
+          }
+        },
+        {
+          "name": "5. Login Dispatcher",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const res = pm.response.json();",
+            "if (res.accessToken) {",
+            "  pm.environment.set('access_token', res.accessToken);",
+            "  pm.environment.set('refresh_token', res.refreshToken);",
+            "  console.log('✅ Logged in as:', res.data?.role);",
+            "}",
+            "if (res.mustChangePassword) console.log('⚠️ Cần đổi mật khẩu trước!');"
+          ]}}],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"loginId\": \"dispatcher@test.com\",\n  \"password\": \"DieuPhoi@5678\"\n}"
+            },
+            "url": "{{base_url}}/auth/login"
+          }
+        },
+        {
+          "name": "6. Login Rescue",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const res = pm.response.json();",
+            "if (res.accessToken) {",
+            "  pm.environment.set('access_token', res.accessToken);",
+            "  pm.environment.set('refresh_token', res.refreshToken);",
+            "  console.log('✅ Logged in as:', res.data?.role);",
+            "}",
+            "if (res.mustChangePassword) console.log('⚠️ Cần đổi mật khẩu trước!');"
+          ]}}],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"loginId\": \"rescue@test.com\",\n  \"password\": \"CuuHo@6789\"\n}"
+            },
+            "url": "{{base_url}}/auth/login"
+          }
+        },
+        {
+          "name": "7. Get Me",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "const res = pm.response.json();",
+            "console.log('👤 User:', res.data?.name, '| Role:', res.data?.role);"
+          ]}}],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/auth/me"
+          }
+        },
+        {
+          "name": "8. Change Password (lần đầu)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "const res = pm.response.json();",
+            "if (res.accessToken) {",
+            "  pm.environment.set('access_token', res.accessToken);",
+            "  pm.environment.set('refresh_token', res.refreshToken);",
+            "  console.log('✅ Password changed, new token saved');",
+            "}"
+          ]}}],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"newPassword\": \"newPass123\"\n}"
+            },
+            "url": "{{base_url}}/auth/change-password"
+          }
+        },
+        {
+          "name": "9. Refresh Token",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "const res = pm.response.json();",
+            "if (res.accessToken) {",
+            "  pm.environment.set('access_token', res.accessToken);",
+            "  pm.environment.set('refresh_token', res.refreshToken);",
+            "  console.log('✅ Token refreshed');",
+            "}"
+          ]}}],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refresh_token}}\"\n}"
+            },
+            "url": "{{base_url}}/auth/refresh-token"
+          }
+        },
+        {
+          "name": "10. Logout",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "pm.environment.set('access_token', '');",
+            "pm.environment.set('refresh_token', '');",
+            "console.log('✅ Logged out, tokens cleared');"
+          ]}}],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/auth/logout"
+          }
+        }
+      ]
+    },
+    {
+      "name": "📁 ADMIN (login Admin trước)",
+      "item": [
+        {
+          "name": "1. Dashboard",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "const d = pm.response.json().data;",
+            "console.log('📊 Total incidents:', d?.totalIncidents, '| Active:', d?.activeIncidents, '| Teams:', d?.activeTeams, '/', d?.totalTeams);"
+          ]}}],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/admin/dashboard"
+          }
+        },
+        {
+          "name": "2. Tạo Dispatcher",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 201', () => pm.response.to.have.status(201));",
+            "const res = pm.response.json();",
+            "console.log('✅ Dispatcher tạo xong | Default pass:', res.data?.defaultPassword);"
+          ]}}],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Trần Dispatcher\",\n  \"email\": \"dispatcher@test.com\",\n  \"phone\": \"0902345678\"\n}"
+            },
+            "url": "{{base_url}}/admin/dispatchers"
+          }
+        },
+        {
+          "name": "3. Tạo Rescue Team",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 201', () => pm.response.to.have.status(201));",
+            "const res = pm.response.json();",
+            "if (res.data?._id) {",
+            "  pm.environment.set('team_id', res.data._id);",
+            "  console.log('✅ Team created | ID saved:', res.data._id, '| Name:', res.data.name);",
+            "}"
+          ]}}],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Đội Cứu Hộ Hà Nội 01\",\n  \"code\": \"RESCUE-HN-01\",\n  \"type\": \"AMBULANCE\",\n  \"zone\": \"Hoàn Kiếm\",\n  \"coordinates\": [105.8412, 21.0245]\n}"
+            },
+            "url": "{{base_url}}/admin/rescue-teams"
+          }
+        },
+        {
+          "name": "4. Tạo Rescue Member",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 201', () => pm.response.to.have.status(201));",
+            "const res = pm.response.json();",
+            "console.log('✅ Rescue member tạo xong | Pass:', res.data?.defaultPassword);"
+          ]}}],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Nguyễn Cứu Hộ\",\n  \"email\": \"rescue@test.com\",\n  \"phone\": \"0903456789\",\n  \"teamId\": \"{{team_id}}\",\n  \"memberRole\": \"LEADER\"\n}"
+            },
+            "url": "{{base_url}}/admin/rescue-members"
+          }
+        },
+        {
+          "name": "5. Danh sách Users",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "const res = pm.response.json();",
+            "console.log('👥 Total users:', res.total);"
+          ]}}],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/admin/users?page=1&limit=10",
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" },
+                { "key": "role", "value": "CITIZEN", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "6. Danh sách Dispatchers",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/admin/dispatchers"
+          }
+        }
+      ]
+    },
+    {
+      "name": "📁 INCIDENTS",
+      "item": [
+        {
+          "name": "1. Tạo Sự Cố (Citizen) - form-data",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 201', () => pm.response.to.have.status(201));",
+            "const res = pm.response.json();",
+            "if (res.data?._id) {",
+            "  pm.environment.set('incident_id', res.data._id);",
+            "  pm.environment.set('incident_code', res.data.code);",
+            "  console.log('✅ Incident:', res.data.code, '| Status:', res.data.status, '| Assigned:', res.data.assignedTeam?.name || 'Chưa assign');",
+            "}"
+          ]}}],
+          "request": {
+            "method": "POST",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "type", "value": "ACCIDENT", "type": "text" },
+                { "key": "severity", "value": "HIGH", "type": "text" },
+                { "key": "coordinates", "value": "[105.8412,21.0245]", "type": "text" },
+                { "key": "address", "value": "Ngã tư Hàng Bài - Đinh Tiên Hoàng, Hà Nội", "type": "text" },
+                { "key": "description", "value": "Tai nạn giao thông nghiêm trọng, cần cứu thương gấp", "type": "text" }
+              ]
+            },
+            "url": "{{base_url}}/incidents"
+          }
+        },
+        {
+          "name": "2. Track Sự Cố (Public)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "const res = pm.response.json();",
+            "console.log('🔍 Track:', res.data?.code, '| Status:', res.data?.status);"
+          ]}}],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": "{{base_url}}/incidents/track/{{incident_code}}"
+          }
+        },
+        {
+          "name": "3. Danh Sách Sự Cố (Dispatcher)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "const res = pm.response.json();",
+            "console.log('📋 Total:', res.total, '| Page:', res.page, '/', res.pages);"
+          ]}}],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/incidents?page=1&limit=10",
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" },
+                { "key": "status", "value": "PENDING", "disabled": true },
+                { "key": "severity", "value": "HIGH", "disabled": true },
+                { "key": "type", "value": "ACCIDENT", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "4. Chi Tiết Sự Cố",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "const res = pm.response.json();",
+            "console.log('📄 Incident:', res.data?.code, '| Timeline steps:', res.data?.timeline?.length);"
+          ]}}],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/incidents/{{incident_id}}"
+          }
+        },
+        {
+          "name": "5. Sự Cố Của Tôi (Citizen)",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/incidents/my"
+          }
+        },
+        {
+          "name": "6. Sự Cố Active (Rescue)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const res = pm.response.json();",
+            "if (res.data) console.log('🚑 Active incident:', res.data.code, '| Status:', res.data.status);",
+            "else console.log('ℹ️ Không có sự cố nào đang xử lý');"
+          ]}}],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/incidents/rescue/active"
+          }
+        },
+        {
+          "name": "7. Update Status → IN_PROGRESS (Rescue)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "const res = pm.response.json();",
+            "console.log('✅ Status updated to:', res.data?.status);"
+          ]}}],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"IN_PROGRESS\",\n  \"note\": \"Đội đang trên đường đến hiện trường\",\n  \"estimatedArrivalMinutes\": 5\n}"
+            },
+            "url": "{{base_url}}/incidents/{{incident_id}}/status"
+          }
+        },
+        {
+          "name": "8. Update Status → COMPLETED (Rescue)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "const res = pm.response.json();",
+            "console.log('✅ Incident COMPLETED | completedAt:', res.data?.completedAt);"
+          ]}}],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"COMPLETED\",\n  \"note\": \"Đã xử lý xong, nạn nhân đã được đưa đến bệnh viện\"\n}"
+            },
+            "url": "{{base_url}}/incidents/{{incident_id}}/status"
+          }
+        },
+        {
+          "name": "9. SOS Khẩn Cấp (Citizen)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 201', () => pm.response.to.have.status(201));",
+            "const res = pm.response.json();",
+            "console.log('🚨 SOS:', res.data?.code, '| Assigned:', res.data?.assignedTeam?.name || 'Đang tìm đội');"
+          ]}}],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"coordinates\": [105.8412, 21.0245],\n  \"description\": \"Cần cứu thương gấp, người bất tỉnh\"\n}"
+            },
+            "url": "{{base_url}}/incidents/sos"
+          }
+        },
+        {
+          "name": "10. Hủy Sự Cố (Dispatcher)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Người dân xác nhận không cần hỗ trợ nữa\"\n}"
+            },
+            "url": "{{base_url}}/incidents/{{incident_id}}/cancel"
+          }
+        }
+      ]
+    },
+    {
+      "name": "📁 RESCUE TEAMS",
+      "item": [
+        {
+          "name": "1. Danh Sách Đội (Dispatcher)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "const res = pm.response.json();",
+            "console.log('🚑 Teams:', res.count, '| Available:', res.data?.filter(t => t.status === 'AVAILABLE').length);"
+          ]}}],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/rescue-teams",
+              "query": [
+                { "key": "status", "value": "AVAILABLE", "disabled": true },
+                { "key": "type", "value": "AMBULANCE", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "2. Đội Của Tôi (Rescue)",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/rescue-teams/my-team"
+          }
+        },
+        {
+          "name": "3. Cập Nhật GPS (Rescue)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "console.log('📍 GPS updated');"
+          ]}}],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"coordinates\": [105.8450, 21.0280]\n}"
+            },
+            "url": "{{base_url}}/rescue-teams/location"
+          }
+        },
+        {
+          "name": "4. Set Availability OFFLINE (Rescue)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"OFFLINE\"\n}"
+            },
+            "url": "{{base_url}}/rescue-teams/availability"
+          }
+        },
+        {
+          "name": "5. Set Availability AVAILABLE (Rescue)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"AVAILABLE\"\n}"
+            },
+            "url": "{{base_url}}/rescue-teams/availability"
+          }
+        },
+        {
+          "name": "6. Phân Công Thủ Công (Dispatcher)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "const res = pm.response.json();",
+            "console.log('✅ Assigned:', res.message);"
+          ]}}],
+          "request": {
+            "method": "PATCH",
+            "url": "{{base_url}}/rescue-teams/{{team_id}}/assign/{{incident_id}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "📁 REPORTS (Dispatcher/Admin)",
+      "item": [
+        {
+          "name": "1. Summary",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "const d = pm.response.json().data;",
+            "console.log('📊 Total:', d?.total, '| SOS:', d?.sosCount, '| Avg response:', d?.avgResponseTimeMinutes, 'phút');"
+          ]}}],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/reports/summary",
+              "query": [
+                { "key": "from", "value": "2026-01-01", "disabled": true },
+                { "key": "to", "value": "2026-12-31", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "2. Heatmap",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "const res = pm.response.json();",
+            "console.log('🗺️ Heatmap points:', res.count);"
+          ]}}],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/reports/heatmap",
+              "query": [
+                { "key": "type", "value": "ACCIDENT", "disabled": true },
+                { "key": "severity", "value": "CRITICAL", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "3. Timeline",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/reports/timeline?groupBy=day",
+              "query": [
+                { "key": "groupBy", "value": "day" },
+                { "key": "from", "value": "2026-01-01", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "4. Team Performance (Admin)",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/reports/team-performance"
+          }
+        }
+      ]
+    },
+    {
+      "name": "📁 NOTIFICATIONS",
+      "item": [
+        {
+          "name": "1. Danh Sách Thông Báo",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "const res = pm.response.json();",
+            "console.log('🔔 Notifications:', res.count, '| Unread:', res.unreadCount);"
+          ]}}],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/notifications",
+              "query": [
+                { "key": "unreadOnly", "value": "true", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "2. Mark All As Read",
+          "request": {
+            "method": "PATCH",
+            "url": "{{base_url}}/notifications/read-all"
+          }
+        }
+      ]
+    },
+    {
+      "name": "📁 CHAT",
+      "item": [
+        {
+          "name": "1. Lịch Sử Chat",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "const res = pm.response.json();",
+            "console.log('💬 Messages:', res.count);"
+          ]}}],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/chat/{{incident_id}}/messages"
+          }
+        },
+        {
+          "name": "2. Gửi Tin Nhắn",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 201', () => pm.response.to.have.status(201));",
+            "const res = pm.response.json();",
+            "console.log('💬 Message sent by:', res.data?.sender?.name);"
+          ]}}],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Đội đang đến, khoảng 5 phút nữa. Hãy giữ nguyên hiện trường.\"\n}"
+            },
+            "url": "{{base_url}}/chat/{{incident_id}}/messages"
+          }
+        }
+      ]
+    },
+    {
+      "name": "📁 GEO",
+      "item": [
+        {
+          "name": "1. Reverse Geocode",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "const res = pm.response.json();",
+            "console.log('📍 Address:', res.data?.address);"
+          ]}}],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/geo/reverse?lat=21.0245&lng=105.8412",
+              "query": [
+                { "key": "lat", "value": "21.0245" },
+                { "key": "lng", "value": "105.8412" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "2. Search Place",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/geo/search?q=Hồ Hoàn Kiếm",
+              "query": [{ "key": "q", "value": "Hồ Hoàn Kiếm" }]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "📁 HEALTH CHECK",
+      "item": [
+        {
+          "name": "Health",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "console.log('✅ Server is running');"
+          ]}}],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "url": "http://localhost:5001/health"
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:5001/api/v1" }
+  ]
+}
