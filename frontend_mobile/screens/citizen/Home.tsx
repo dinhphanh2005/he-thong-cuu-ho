@@ -10,7 +10,7 @@ import { RootState } from '../../src/store/store';
 import { COLORS } from '../../src/constants';
 import * as Location from 'expo-location';
 import MapView, { Marker } from 'react-native-maps';
-import { rescueAPI } from '../../src/services/api';
+import { rescueAPI, incidentAPI } from '../../src/services/api';
 import { connectSocket, getSocket } from '../../src/services/socket';
 
 const { width } = Dimensions.get('window');
@@ -30,6 +30,7 @@ export default function CitizenHome({ navigation }: any) {
   const mapRef = useRef<MapView>(null);
   const [currentRegion, setCurrentRegion] = useState<any>(null);
   const [activeTeams, setActiveTeams] = useState<any[]>([]);
+  const [activeIncident, setActiveIncident] = useState<any>(null);
 
   useEffect(() => {
     let socketRef: any = null;
@@ -47,14 +48,18 @@ export default function CitizenHome({ navigation }: any) {
         longitudeDelta: 0.05,
       });
 
-      // 2. Fetch Nearby Active Teams
+      // 2. Fetch Nearby Active Teams & My Active Incident
       try {
-        const res = await rescueAPI.getActiveTeams(loc.coords.latitude, loc.coords.longitude);
-        if (res.data?.success) {
-          setActiveTeams(res.data.data);
-        }
+        const [teamsRes, incRes] = await Promise.all([
+          rescueAPI.getActiveTeams(loc.coords.latitude, loc.coords.longitude),
+          incidentAPI.getActiveMy()
+        ]);
+
+        if (teamsRes.data?.success) setActiveTeams(teamsRes.data.data);
+        if (incRes.data?.success) setActiveIncident(incRes.data.data);
+
       } catch (err) {
-        console.log('Error fetching active teams:', err);
+        console.log('Error fetching initial data:', err);
       }
 
       // 3. Connect Socket for Live Updates
@@ -78,6 +83,19 @@ export default function CitizenHome({ navigation }: any) {
               name: data.teamName,
               currentLocation: { type: 'Point', coordinates: data.coordinates }
             }];
+          });
+        });
+
+        socketRef.on('rescue:assigned', (data: any) => {
+          // If this incident matches the one we reported (need to check if we can verify or just reload)
+          incidentAPI.getActiveMy().then(res => {
+            if (res.data?.success) setActiveIncident(res.data.data);
+          });
+        });
+
+        socketRef.on('incident:updated', (data: any) => {
+          incidentAPI.getActiveMy().then(res => {
+            if (res.data?.success) setActiveIncident(res.data.data);
           });
         });
       }
@@ -129,6 +147,32 @@ export default function CitizenHome({ navigation }: any) {
 
         {/* Action Cards */}
         <View style={styles.cards}>
+          {activeIncident && (
+            <TouchableOpacity 
+              style={styles.trackingCard} 
+              onPress={() => navigation.navigate('Tracking', { incidentId: activeIncident._id })}
+            >
+              <View style={styles.cardInner}>
+                <View style={[styles.reportBox, { backgroundColor: '#EBF5FF' }]}>
+                  <Ionicons name="map" size={24} color={COLORS.primary} />
+                </View>
+                <View style={styles.cardText}>
+                   <View style={styles.flexRow}>
+                      <Text style={styles.trackingTitle}>Đang xử lý sự cố</Text>
+                      <View style={styles.livePulse} />
+                   </View>
+                  <Text style={styles.cardSub} numberOfLines={1}>
+                    {activeIncident.location.address}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.goTracking}>
+                 <Text style={styles.goText}>Theo dõi</Text>
+                 <Ionicons name="chevron-forward" size={14} color="#fff" />
+              </View>
+            </TouchableOpacity>
+          )}
+
           <TouchableOpacity style={styles.sosCard} onPress={handleSOS}>
             <View style={styles.cardInner}>
               <View style={styles.sosBox}>
@@ -256,6 +300,24 @@ const styles = StyleSheet.create({
   },
   appTitle: { fontSize: 22, fontWeight: '800', color: COLORS.dark },
   cards: { paddingHorizontal: 20, gap: 12 },
+  trackingCard: {
+    backgroundColor: COLORS.white, borderRadius: 20, padding: 12,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    borderWidth: 2, borderColor: COLORS.primary,
+    shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1, shadowRadius: 10, elevation: 5,
+    marginBottom: 8,
+  },
+  flexRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  trackingTitle: { fontSize: 15, fontWeight: '800', color: COLORS.primary },
+  livePulse: {
+    width: 6, height: 6, borderRadius: 3, backgroundColor: '#E74C3C',
+  },
+  goTracking: {
+    backgroundColor: COLORS.primary, paddingHorizontal: 12, paddingVertical: 8,
+    borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 4,
+  },
+  goText: { color: '#fff', fontSize: 12, fontWeight: '800' },
   sosCard: {
     backgroundColor: '#FFF5F5', borderRadius: 16, padding: 16,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

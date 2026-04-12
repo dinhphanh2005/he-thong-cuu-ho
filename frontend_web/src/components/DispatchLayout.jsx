@@ -8,7 +8,7 @@ import { disconnectSocket } from '../services/socket';
 // ── Sidebar ────────────────────────────────────────────────────────────────────
 function Sidebar() {
   const navigate = useNavigate();
-  const { pendingCount } = useApp();
+  const { pendingCount, config } = useApp();
   const user = getStoredUser();
 
   const menuItems = [
@@ -29,7 +29,9 @@ function Sidebar() {
     <div className="w-64 bg-white border-r border-gray-200 h-screen flex flex-col fixed left-0 top-0 z-20">
       {/* Brand */}
       <div className="h-16 flex items-center shrink-0 px-6 border-b border-gray-100">
-        <h1 className="text-[#1A1A1A] text-lg font-bold tracking-tight">Trung Tâm Điều Phối</h1>
+        <h1 className="text-[#1A1A1A] text-lg font-bold tracking-tight truncate">
+          {config?.systemName || 'Trung Tâm Điều Phối'}
+        </h1>
       </div>
 
       {/* Nav */}
@@ -74,11 +76,11 @@ function Sidebar() {
                 className="w-full h-full object-cover"
               />
             </div>
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 text-left">
               <p className="text-sm font-bold text-gray-900 truncate">{user?.name || 'Điều phối viên'}</p>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <span className="w-2 h-2 rounded-full bg-green-500" />
-                <p className="text-xs font-medium text-gray-500">{user?.role || 'Online'}</p>
+                <p className="text-xs font-medium text-gray-500">Điều phối viên</p>
               </div>
             </div>
           </div>
@@ -108,6 +110,7 @@ function Sidebar() {
 // ── Header ─────────────────────────────────────────────────────────────────────
 function Header() {
   const location = useLocation();
+  const { config } = useApp();
   const { pendingCount } = useApp();
 
   const titles = {

@@ -7,12 +7,15 @@ const {
   createRescueTeam,
   updateRescueTeam,
   deleteRescueTeam,
+  toggleSuspendTeam,
   createRescueMember,
   getAllUsers,
   toggleUserActive,
   resetUserPassword,
   triggerDailyReport,
   getDashboard,
+  getSystemConfig,
+  updateSystemConfig,
 } = require('../controllers/adminController');
 
 const { protect, checkPasswordChange, authorize } = require('../middleware/authMiddleware');
@@ -179,6 +182,7 @@ router.post('/rescue-teams', createTeamRules, validate, createRescueTeam);
  */
 router.put('/rescue-teams/:id', updateRescueTeam);
 router.delete('/rescue-teams/:id', deleteRescueTeam);
+router.patch('/rescue-teams/:id/toggle-suspend', toggleSuspendTeam);
 
 /**
  * @swagger
@@ -314,5 +318,22 @@ router.post('/users/:id/reset-password', resetUserPassword);
  *         description: Đã đưa vào hàng đợi
  */
 router.post('/reports/trigger', triggerDailyReport);
+
+/**
+ * @swagger
+ * /api/v1/admin/config:
+ *   get:
+ *     summary: Lấy cấu hình hệ thống
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *   patch:
+ *     summary: Cập nhật cấu hình hệ thống
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get('/config', getSystemConfig);
+router.patch('/config', updateSystemConfig);
 
 module.exports = router;

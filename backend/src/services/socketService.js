@@ -145,6 +145,14 @@ const initSocketService = (io) => {
       }
     });
 
+    // RESCUE: Chủ động tham gia room của đội (để tránh stale state khi reconnect)
+    socket.on('rescue:join-team', (teamId) => {
+      if (role === 'RESCUE' && teamId) {
+        socket.join(`rescue-team:${teamId}`);
+        logger.debug(`RESCUE user ${userId} explicitly joined room: rescue-team:${teamId}`);
+      }
+    });
+
     // ==========================================
     // DISCONNECT
     // ==========================================
@@ -192,7 +200,15 @@ const emitNewIncident = (io, incident) => {
  * Phát cập nhật trạng thái sự cố
  */
 const emitIncidentUpdated = (io, incidentId, statusData) => {
-  io.emit('incident:updated', { id: incidentId, ...statusData });
+  // Đảm bảo id và assignedTeam luôn có mặt để mobile app nhận diện
+  const payload = { 
+    id: incidentId, 
+    _id: incidentId,
+    ...statusData 
+  };
+  
+  io.emit('incident:updated', payload);
+  
   // Phát tới citizen đang track
   if (statusData.code) {
     io.to(`track:${statusData.code}`).emit('incident:status-change', statusData);

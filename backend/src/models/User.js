@@ -38,6 +38,20 @@ const userSchema = new mongoose.Schema(
     },
     mustChangePassword: { type: Boolean, default: false },
     lastLogin: { type: Date },
+    settings: {
+      notifications: {
+        sosSound: { type: Boolean, default: true },
+        browser: { type: Boolean, default: false },
+        assignment: { type: Boolean, default: true },
+        summary: { type: Boolean, default: true },
+      },
+      mapConfig: {
+        defaultMap: { type: String, default: 'TRAFFIC' },
+        trafficLayer: { type: Boolean, default: true },
+        showTeams: { type: Boolean, default: true },
+        autoCenter: { type: Boolean, default: true },
+      },
+    },
   },
   { timestamps: true }
 );

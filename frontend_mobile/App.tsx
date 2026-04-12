@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -13,6 +13,7 @@ import { setUser } from './src/store/authSlice';
 import { authAPI } from './src/services/api';
 import { connectSocket } from './src/services/socket';
 import { COLORS } from './src/constants';
+import { usePushNotifications } from './src/hooks/usePushNotifications';
 
 import Login from './screens/auth/Login';
 import Register from './screens/auth/Register';
@@ -24,6 +25,7 @@ import CitizenSOS from './screens/citizen/SOS';
 import NotificationScreen from './screens/citizen/Notification';
 import AccountScreen from './screens/citizen/Account';
 import ReportIncident from './screens/citizen/Report';
+import TrackingScreen from './screens/citizen/Tracking';
 
 import RescueHome from './screens/rescue/Home';
 import RescueHistory from './screens/rescue/History';
@@ -122,9 +124,12 @@ function RescueTabs() {
   );
 }
 
-function RootNavigator() {
+function RootNavigator({ navigationRef }: { navigationRef: any }) {
   const dispatch = useDispatch();
   const [initialRoute, setInitialRoute] = useState<string | null>(null);
+
+  // Register push notifications and handle taps
+  usePushNotifications(navigationRef);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -169,6 +174,7 @@ function RootNavigator() {
       <Stack.Screen name="CitizenTabs" component={CitizenTabs} />
       <Stack.Screen name="SOS" component={CitizenSOS} />
       <Stack.Screen name="ReportIncident" component={ReportIncident} />
+      <Stack.Screen name="Tracking" component={TrackingScreen} />
       <Stack.Screen name="Account" component={AccountScreen} options={{ presentation: 'transparentModal' }} />
       <Stack.Screen name="RescueTabs" component={RescueTabs} />
       <Stack.Screen name="RescueAccount" component={RescueAccount} options={{ presentation: 'transparentModal' }} />
@@ -178,11 +184,13 @@ function RootNavigator() {
 }
 
 export default function App() {
+  const navigationRef = useRef<any>(null);
+
   return (
     <Provider store={store}>
       <SafeAreaProvider>
-        <NavigationContainer>
-          <RootNavigator />
+        <NavigationContainer ref={navigationRef}>
+          <RootNavigator navigationRef={navigationRef} />
         </NavigationContainer>
       </SafeAreaProvider>
     </Provider>

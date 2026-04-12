@@ -1,7 +1,7 @@
 import React from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, Truck, Users, FileText, Settings, Search, Bell, LogOut } from 'lucide-react';
-import { AppProvider } from '../context/AppContext';
+import { AppProvider, useApp } from '../context/AppContext';
 import { authAPI, clearAuth, getStoredUser } from '../services/api';
 import { disconnectSocket } from '../services/socket';
 
@@ -9,6 +9,7 @@ import { disconnectSocket } from '../services/socket';
 function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { config } = useApp();
 
   const handleLogout = async () => {
     try { await authAPI.logout(); } catch {}
@@ -42,7 +43,9 @@ function Sidebar() {
     <div className="w-[280px] bg-white border-r border-gray-100 h-screen flex flex-col fixed left-0 top-0 z-20">
       {/* Brand */}
       <div className="h-20 flex items-center shrink-0 px-8">
-        <h1 className="text-gray-900 text-2xl font-black tracking-tight font-sans">Admin System</h1>
+        <h1 className="text-gray-900 text-2XL font-black tracking-tight font-sans truncate">
+          {config?.systemName || 'Admin System'}
+        </h1>
       </div>
 
       {/* Nav */}
@@ -74,9 +77,9 @@ function Sidebar() {
                 className="w-full h-full object-cover"
               />
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[13px] font-black text-gray-900 truncate">{getStoredUser()?.name || 'Administrator'}</p>
-              <p className="text-[11px] font-bold text-gray-400 italic">Quản trị viên</p>
+            <div className="flex-1 min-w-0 text-left">
+              <p className="text-[13px] font-black text-gray-900 truncate">{getStoredUser()?.name || 'Quản trị viên'}</p>
+              <p className="text-[11px] font-bold text-gray-400 italic">Quản trị hệ thống</p>
             </div>
           </div>
           <button

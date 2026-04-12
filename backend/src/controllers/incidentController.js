@@ -1,16 +1,20 @@
 const Incident = require('../models/Incident');
+const SystemConfig = require('../models/SystemConfig');
 const { autoAssignTeam, releaseTeam } = require('../services/assignmentService');
 const { emitNewIncident, emitIncidentUpdated, emitSOSAlert } = require('../services/socketService');
-const { notifyCitizenCompleted, sendSOSAlert } = require('../services/notificationService');
+const { notifyCitizenCompleted, sendSOSAlert, notifyDispatcherRefused } = require('../services/notificationService');
 const { reverseGeocode } = require('../services/geocodingService');
 const { scheduleRetry, addToAssignQueue } = require('../jobs/autoAssignJob');
+const { recalculateTeamStatus } = require('../services/teamAvailabilityService');
 const logger = require('../utils/logger');
 
-const ACTIVE_RESCUE_STATUSES = ['ASSIGNED', 'ARRIVED', 'PROCESSING'];
+const ACTIVE_RESCUE_STATUSES = ['ASSIGNED', 'ARRIVED', 'PROCESSING', 'IN_PROGRESS'];
 const RESCUE_STATUS_TRANSITIONS = {
+  OFFERING: ['ASSIGNED', 'PENDING'],
   ASSIGNED: ['ARRIVED'],
   ARRIVED: ['PROCESSING'],
   PROCESSING: ['COMPLETED'],
+  IN_PROGRESS: ['COMPLETED'],
 };
 
 /**
@@ -49,8 +53,11 @@ exports.createIncident = async (req, res) => {
   const io = req.app.get('io');
   if (io) emitNewIncident(io, incident);
 
-  const assignedTeam = await autoAssignTeam(incident, io);
-  if (!assignedTeam) await scheduleRetry(incident._id.toString());
+  const config = await SystemConfig.getSingleton();
+  if (config.algoSettings.isAutoAssignEnabled) {
+    const assignedTeam = await autoAssignTeam(incident, io);
+    if (!assignedTeam) await scheduleRetry(incident._id.toString());
+  }
 
   const updated = await Incident.findById(incident._id)
     .populate('reportedBy', 'name phone')
@@ -190,6 +197,22 @@ exports.getMyIncidents = async (req, res) => {
 };
 
 /**
+ * @desc    Sự cố đang xử lý của Citizen đang đăng nhập (chỉ lấy 1 cái mới nhất)
+ * @route   GET /api/v1/incidents/my/active
+ * @access  Private (Citizen)
+ */
+exports.getActiveCitizenIncident = async (req, res) => {
+  const incident = await Incident.findOne({
+    reportedBy: req.user._id,
+    status: { $in: ['PENDING', 'ASSIGNED', 'ARRIVED', 'PROCESSING'] },
+  })
+    .populate('assignedTeam', 'name code type status currentLocation')
+    .sort('-createdAt');
+
+  res.status(200).json({ success: true, data: incident || null });
+};
+
+/**
  * @desc    Sự cố đang xử lý của Rescue team
  * @route   GET /api/v1/incidents/rescue/active
  * @access  Private (Rescue)
@@ -208,6 +231,44 @@ exports.getActiveRescueIncident = async (req, res) => {
     .populate('timeline.updatedBy', 'name role');
 
   res.status(200).json({ success: true, data: incident || null });
+};
+
+/**
+ * @desc    Lịch sử sự cố của Rescue team (Đã hoàn thành hoặc Hủy)
+ * @route   GET /api/v1/incidents/rescue/history
+ * @access  Private (Rescue)
+ */
+exports.getRescueHistory = async (req, res) => {
+  const teamId = req.user.rescueTeam?._id;
+  if (!teamId) {
+    return res.status(403).json({ success: false, message: 'Bạn chưa được gắn với đội cứu hộ nào' });
+  }
+
+  const { page = 1, limit = 20 } = req.query;
+  const skip = (parseInt(page) - 1) * parseInt(limit);
+
+  const filter = {
+    assignedTeam: teamId,
+    status: { $in: ['COMPLETED', 'CANCELLED'] },
+  };
+
+  const [incidents, total] = await Promise.all([
+    Incident.find(filter)
+      .populate('reportedBy', 'name phone')
+      .sort('-completedAt -createdAt')
+      .skip(skip)
+      .limit(parseInt(limit)),
+    Incident.countDocuments(filter),
+  ]);
+
+  res.status(200).json({
+    success: true,
+    count: incidents.length,
+    total,
+    page: parseInt(page),
+    pages: Math.ceil(total / parseInt(limit)),
+    data: incidents,
+  });
 };
 
 /**
@@ -231,6 +292,11 @@ exports.updateIncidentStatus = async (req, res) => {
 
     const allowedTransitions = RESCUE_STATUS_TRANSITIONS[incident.status] || [];
     if (!allowedTransitions.includes(status)) {
+      // Idempotency check: If the status is already what we want, return success without duplicating timeline
+      if (incident.status === status) {
+        return res.status(200).json({ success: true, data: incident, message: 'Trạng thái đã được cập nhật trước đó' });
+      }
+
       return res.status(400).json({
         success: false,
         message: `Rescue chỉ có thể chuyển từ ${incident.status} sang ${allowedTransitions.join(', ') || 'không có trạng thái nào'}`,
@@ -267,6 +333,7 @@ exports.updateIncidentStatus = async (req, res) => {
     emitIncidentUpdated(io, incident._id, {
       status,
       code: incident.code,
+      assignedTeam: incident.assignedTeam, // Quan trọng để đồng bộ các thành viên khác trong đội
       estimatedArrival: incident.estimatedArrival,
     });
     if (req.releasedTeam) {
@@ -282,52 +349,127 @@ exports.updateIncidentStatus = async (req, res) => {
 };
 
 /**
- * @desc    Rescue từ chối sự cố vừa được phân công
+ * @desc    Rescue chấp nhận sự cố đang được offer
+ * @route   PATCH /api/v1/incidents/:id/accept
+ * @access  Private (Rescue)
+ */
+exports.acceptIncident = async (req, res) => {
+  const incident = await Incident.findById(req.params.id);
+  if (!incident) return res.status(404).json({ success: false, message: 'Không tìm thấy sự cố' });
+
+  const teamId = req.user.rescueTeam?._id?.toString();
+  if (incident.offeredTo?.toString() !== teamId) {
+    return res.status(403).json({ success: false, message: 'Sự cố này không được offer cho đội của bạn' });
+  }
+
+  if (incident.status !== 'OFFERING') {
+    return res.status(400).json({ success: false, message: 'Sự cố không còn ở trạng thái chờ xác nhận' });
+  }
+
+  if (new Date() > incident.offerExpiresAt) {
+    return res.status(400).json({ success: false, message: 'Đã hết thời gian xác nhận (35s)' });
+  }
+
+  // Chuyển sang ASSIGNED
+  incident.status = 'ASSIGNED';
+  incident.assignedTeam = teamId;
+  incident.offeredTo = null;
+  incident.timeline.push({
+    status: 'ASSIGNED',
+    updatedBy: req.user._id,
+    note: `Đội ${req.user.rescueTeam?.name} đã chấp nhận nhiệm vụ`,
+  });
+  await incident.save();
+
+  // Cập nhật đội sang BUSY
+  const RescueTeam = require('../models/RescueTeam');
+  const team = await RescueTeam.findById(teamId);
+  if (team) {
+    team.status = 'BUSY';
+    team.activeIncident = incident._id;
+    await team.save();
+    await recalculateTeamStatus(teamId);
+  }
+
+  const io = req.app.get('io');
+  if (io) {
+    emitIncidentUpdated(io, incident._id, { status: 'ASSIGNED', code: incident.code, assignedTeam: teamId });
+    io.to('dispatchers').emit('rescue:status-changed', { teamId, status: 'BUSY' });
+    // Thông báo cho người dân
+    const { notifyCitizenAssigned } = require('../services/notificationService');
+    await notifyCitizenAssigned(incident, req.user.rescueTeam?.name || 'Đội cứu hộ');
+  }
+
+  res.status(200).json({ success: true, data: incident });
+};
+
+/**
+ * @desc    Rescue từ chối sự cố đang được offer
  * @route   PATCH /api/v1/incidents/:id/refuse
  * @access  Private (Rescue)
  */
 exports.refuseIncident = async (req, res) => {
   const { reason } = req.body;
-
   const incident = await Incident.findById(req.params.id);
-  if (!incident) {
-    return res.status(404).json({ success: false, message: 'Không tìm thấy sự cố' });
-  }
+  if (!incident) return res.status(404).json({ success: false, message: 'Không tìm thấy sự cố' });
 
-  const userTeamId = req.user.rescueTeam?._id?.toString();
-  if (!userTeamId || userTeamId !== incident.assignedTeam?.toString()) {
+  const teamId = req.user.rescueTeam?._id?.toString();
+  const isOffered = incident.offeredTo?.toString() === teamId;
+  const isAssigned = incident.assignedTeam?.toString() === teamId;
+
+  if (!isOffered && !isAssigned) {
     return res.status(403).json({ success: false, message: 'Không có quyền từ chối sự cố này' });
   }
 
-  if (incident.status !== 'ASSIGNED') {
-    return res.status(400).json({ success: false, message: 'Chỉ có thể từ chối sự cố đang ở trạng thái ASSIGNED' });
+  // Lưu lại đội đã từ chối
+  if (!incident.rejectedTeams.includes(teamId)) {
+    incident.rejectedTeams.push(teamId);
   }
 
   incident.status = 'PENDING';
+  const oldTeamId = incident.assignedTeam || incident.offeredTo;
   incident.assignedTeam = null;
+  incident.offeredTo = null;
   incident.timeline.push({
     status: 'PENDING',
     updatedBy: req.user._id,
-    note: reason || `Đội cứu hộ ${req.user.rescueTeam?.name || req.user.name} từ chối tiếp nhận sự cố`,
+    note: reason || `Đội ${req.user.rescueTeam?.name} từ chối tiếp nhận (Lý do: Bận/Không phù hợp)`,
   });
   await incident.save();
 
-  const releasedTeam = await releaseTeam({ ...incident.toObject(), assignedTeam: userTeamId });
-
-  const updated = await Incident.findById(incident._id)
-    .populate('reportedBy', 'name phone')
-    .populate('assignedTeam', 'name code type status');
+  // Giải phóng đội
+  const oldTeamState = await recalculateTeamStatus(oldTeamId);
 
   const io = req.app.get('io');
   if (io) {
     emitIncidentUpdated(io, incident._id, { status: 'PENDING', code: incident.code, assignedTeam: null });
-    io.to(`rescue-team:${userTeamId}`).emit('incident:refused', { incidentId: incident._id });
-    if (releasedTeam) {
-      io.to('dispatchers').emit('rescue:status-changed', { teamId: releasedTeam._id, status: releasedTeam.status });
+    if (oldTeamState?.team) {
+      io.to('dispatchers').emit('rescue:status-changed', {
+        teamId: oldTeamState.team._id,
+        status: oldTeamState.team.status,
+      });
     }
   }
 
-  res.status(200).json({ success: true, data: updated });
+  // Kích hoạt tìm đội mới - đảm bảo luôn chạy dù io có hay không
+  // Dây delay 500ms để đảm bảo recalculateTeamStatus của đội cũ đã hoàn tất trước khi tìm đội mới
+  try {
+    const config = await SystemConfig.getSingleton();
+    const attempts = incident.assignmentAttempts || 0;
+    if (config.algoSettings.isAutoAssignEnabled && attempts < 3) {
+      logger.info(`Refuse: Kích hoạt tìm đội mới cho ${incident.code} (attempt ${attempts}), delay 500ms...`);
+      await addToAssignQueue(incident._id.toString(), 500);
+    } else {
+      logger.warn(`Refuse: Không kích hoạt auto-assign · isAutoAssign=${config.algoSettings.isAutoAssignEnabled} attempts=${attempts}`);
+    }
+  } catch (err) {
+    logger.error(`Refuse: Lỗi khi kích hoạt queue: ${err.message}`);
+  }
+
+  // Notify dispatchers (fire-and-forget)
+  notifyDispatcherRefused(incident, req.user.rescueTeam?.name || 'Đội cứu hộ').catch(() => {});
+
+  res.status(200).json({ success: true, data: incident });
 };
 
 /**
@@ -356,8 +498,11 @@ exports.triggerSOS = async (req, res) => {
 
   await sendSOSAlert(incident);
 
-  const assignedTeam = await autoAssignTeam(incident, io);
-  if (!assignedTeam) await addToAssignQueue(incident._id.toString(), 30000);
+  const config = await SystemConfig.getSingleton();
+  if (config.algoSettings.isAutoAssignEnabled) {
+    const assignedTeam = await autoAssignTeam(incident, io);
+    if (!assignedTeam) await addToAssignQueue(incident._id.toString(), 30000);
+  }
 
   const updated = await Incident.findById(incident._id).populate('assignedTeam', 'name code');
   res.status(201).json({ success: true, data: updated });

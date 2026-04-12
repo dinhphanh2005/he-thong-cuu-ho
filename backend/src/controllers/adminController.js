@@ -1,24 +1,32 @@
 const User = require('../models/User');
 const RescueTeam = require('../models/RescueTeam');
 const Incident = require('../models/Incident');
+const SystemConfig = require('../models/SystemConfig');
 const { triggerManualReport } = require('../jobs/dailyReportJob');
 const { decorateTeam, recalculateTeamStatus } = require('../services/teamAvailabilityService');
 
 // ==================== DISPATCHER ====================
 
 exports.createDispatcher = async (req, res) => {
-  const { name, email, phone } = req.body;
+  const { name, email, phone, role } = req.body;
+  const allowedRoles = ['DISPATCHER', 'ADMIN'];
+  const assignedRole = allowedRoles.includes(role) ? role : 'DISPATCHER';
 
   const exists = await User.findOne({ $or: [{ email }, { phone }] });
   if (exists) return res.status(400).json({ success: false, message: 'Email hoặc SĐT đã tồn tại' });
 
   const defaultPassword = `DieuPhoi@${phone.slice(-4)}`;
-  const dispatcher = await User.create({ name, email, phone, passwordHash: defaultPassword, role: 'DISPATCHER', mustChangePassword: true });
+  const dispatcher = await User.create({
+    name, email, phone,
+    passwordHash: defaultPassword,
+    role: assignedRole,
+    mustChangePassword: true,
+  });
 
   res.status(201).json({
     success: true,
-    message: 'Tạo tài khoản Dispatcher thành công',
-    data: { name: dispatcher.name, email: dispatcher.email, phone: dispatcher.phone, defaultPassword },
+    message: `Tạo tài khoản ${assignedRole} thành công`,
+    data: { name: dispatcher.name, email: dispatcher.email, phone: dispatcher.phone, role: assignedRole, defaultPassword },
   });
 };
 
@@ -69,6 +77,26 @@ exports.deleteRescueTeam = async (req, res) => {
   await User.updateMany({ rescueTeam: team._id }, { $unset: { rescueTeam: 1 } });
 
   res.status(200).json({ success: true, message: 'Đã xóa đội cứu hộ' });
+};
+
+exports.toggleSuspendTeam = async (req, res) => {
+  const team = await RescueTeam.findById(req.params.id);
+  if (!team) return res.status(404).json({ success: false, message: 'Không tìm thấy đội cứu hộ' });
+
+  if (team.status === 'SUSPENDED') {
+    team.status = 'OFFLINE'; // Re-calculating will set it to AVAILABLE if enough members are online
+    await team.save();
+    await recalculateTeamStatus(team._id);
+  } else {
+    team.status = 'SUSPENDED';
+    await team.save();
+  }
+
+  res.status(200).json({
+    success: true,
+    message: `Đội đã ${team.status === 'SUSPENDED' ? 'bị đình chỉ' : 'hoạt động trở lại'}`,
+    data: team
+  });
 };
 
 // ==================== RESCUE MEMBERS ====================
@@ -184,4 +212,33 @@ exports.triggerDailyReport = async (req, res) => {
   const { targetDate } = req.body;
   await triggerManualReport(targetDate);
   res.status(200).json({ success: true, message: 'Đã đưa báo cáo vào hàng đợi xử lý' });
+};
+
+// ==================== SYSTEM CONFIGURATION ====================
+
+exports.getSystemConfig = async (req, res) => {
+  const config = await SystemConfig.getSingleton();
+  res.status(200).json({ success: true, data: config });
+};
+
+exports.updateSystemConfig = async (req, res) => {
+  const config = await SystemConfig.getSingleton();
+  
+  // Update fields from request body selectively to avoid overwriting with undefined
+  const updates = req.body;
+  Object.keys(updates).forEach(key => {
+    if (updates[key] !== undefined) {
+      config[key] = updates[key];
+    }
+  });
+
+  await config.save();
+
+  // Socket.IO realtime update
+  const io = req.app.get('io');
+  if (io) {
+    io.emit('system:config-updated', config);
+  }
+
+  res.status(200).json({ success: true, message: 'Cập nhật cấu hình thành công', data: config });
 };

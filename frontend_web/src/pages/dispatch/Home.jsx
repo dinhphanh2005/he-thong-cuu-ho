@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { Filter, ChevronRight, ShieldCheck, AlertTriangle, Phone, Zap } from 'lucide-react';
@@ -106,7 +106,7 @@ export default function Home() {
   const displayedIncidents = incidents.filter(i => {
     if (filter === 'SOS') return i.severity === 'CRITICAL';
     if (filter === 'NORMAL') return i.severity !== 'CRITICAL';
-    return ['PENDING', 'ASSIGNED', 'ARRIVED', 'PROCESSING'].includes(i.status);
+    return ['PENDING', 'OFFERING', 'ASSIGNED', 'ARRIVED', 'PROCESSING'].includes(i.status);
   }).slice(0, 5);
 
   const handleCall = (num) => window.open(`tel:${num}`, '_self');
@@ -192,6 +192,27 @@ export default function Home() {
                 </Popup>
               </Marker>
             ))}
+
+            {/* Routing path for selected incident */}
+            {selectedIncident && (() => {
+              const selectedInc = incidents.find(i => i._id === selectedIncident);
+              if (selectedInc?.routingPath?.length > 0) {
+                // Convert [lng, lat] to [lat, lng] for Leaflet
+                const path = selectedInc.routingPath.map(p => [p[1], p[0]]);
+                return (
+                  <Polyline 
+                    positions={path} 
+                    color="#3b82f6" 
+                    weight={5} 
+                    opacity={0.6} 
+                    dashArray="10, 10"
+                    lineJoin="round"
+                    className="animate-pulse"
+                  />
+                );
+              }
+              return null;
+            })()}
           </MapContainer>
         </div>
       </div>
@@ -258,14 +279,23 @@ export default function Home() {
                     <div className="flex justify-between items-start mb-1.5">
                       {isCritical ? (
                         <span className="bg-red-100 text-red-600 text-[10px] font-black px-2 py-0.5 rounded">SOS KHẨN CẤP</span>
+                      ) : inc.status === 'OFFERING' ? (
+                        <span className="bg-yellow-100 text-yellow-700 text-[10px] font-bold px-2 py-0.5 rounded">ĐANG ĐỀ XUẤT</span>
                       ) : (
                         <span className="text-blue-600 text-[10px] font-bold">Bình thường</span>
                       )}
                       <span className="text-[10px] text-gray-400">{timeAgo(inc.createdAt)}</span>
                     </div>
-                    <h4 className="font-bold text-gray-900 text-sm mb-0.5">
-                      {inc.location?.address?.split(',')[0] || 'Không có địa chỉ'}
-                    </h4>
+                    <div className="flex justify-between items-center mb-0.5">
+                      <h4 className="font-bold text-gray-900 text-sm">
+                        {inc.location?.address?.split(',')[0] || 'Không có địa chỉ'}
+                      </h4>
+                      {inc.assignmentAttempts > 0 && (
+                        <span className="text-[10px] text-orange-600 font-bold bg-orange-50 px-1.5 py-0.5 rounded">
+                          Lần {inc.assignmentAttempts}/3
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-gray-500">{inc.reportedBy?.name || 'Ẩn danh'}</p>
 
                     {isCritical && (

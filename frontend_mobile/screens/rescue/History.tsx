@@ -12,43 +12,11 @@ export default function RescueHistory() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
 
-  const MOCK_INCIDENTS = [
-    {
-      _id: 'mock_h1',
-      code: 'CH-9381',
-      type: 'TIRE',
-      status: 'COMPLETED',
-      location: { address: 'Trạm thu phí Pháp Vân, Cầu Giẽ, Hà Nội' },
-      createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
-    },
-    {
-      _id: 'mock_h2',
-      code: 'CH-1029',
-      type: 'ACCIDENT',
-      status: 'CANCELLED',
-      location: { address: 'Khu vực Mễ Trì, Nam Từ Liêm, Hà Nội' },
-      createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
-    },
-    {
-      _id: 'mock_h3',
-      code: 'CH-3041',
-      type: 'BATTERY',
-      status: 'COMPLETED',
-      location: { address: 'Ngã tư Nguyễn Trãi - Khuất Duy Tiến, Hà Nội' },
-      createdAt: new Date(Date.now() - 1000 * 60 * 60 * 48).toISOString(),
-    }
-  ];
-
   const fetchIncidents = async (pageNum = 1, refresh = false) => {
     try {
-      const { data } = await incidentAPI.getMy({ page: pageNum, limit: 20 });
+      const { data } = await incidentAPI.getRescueHistory({ page: pageNum, limit: 20 });
       let incomingData = data?.data || [];
       
-      // development mock data if empty
-      if (pageNum === 1 && incomingData.length === 0) {
-        incomingData = MOCK_INCIDENTS;
-      }
-
       if (refresh) {
         setIncidents(incomingData);
       } else {
@@ -56,7 +24,7 @@ export default function RescueHistory() {
       }
       setHasMore(pageNum < (data?.pages || 1));
     } catch (err) {
-      console.log('Error:', err);
+      console.log('Error fetching history:', err);
     } finally {
       setLoading(false);
       setRefreshing(false);

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { AlertTriangle, Car, Flame, Droplets, HelpCircle, ChevronRight, Phone, MessageSquare, Search, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Car, Flame, Droplets, Siren, MapPin, MessageSquare, Search, RefreshCw, ChevronRight, Phone } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import HotlineModal from '../../components/HotlineModal';
@@ -10,7 +10,8 @@ const TYPE_ICONS = {
   BREAKDOWN: <Car size={18} className="text-blue-500" />,
   FIRE: <Flame size={18} className="text-orange-500" />,
   FLOOD: <Droplets size={18} className="text-cyan-500" />,
-  OTHER: <HelpCircle size={18} className="text-gray-500" />,
+  SOS_EMERGENCY: <Siren size={18} className="text-red-600" />,
+  OTHER: <MapPin size={18} className="text-gray-500" />,
 };
 
 const TYPE_BG = {
@@ -18,6 +19,7 @@ const TYPE_BG = {
   BREAKDOWN: 'bg-blue-50 border-blue-100',
   FIRE: 'bg-orange-50 border-orange-100',
   FLOOD: 'bg-cyan-50 border-cyan-100',
+  SOS_EMERGENCY: 'bg-red-50 border-red-200',
   OTHER: 'bg-gray-50 border-gray-100',
 };
 
@@ -26,6 +28,7 @@ const TYPE_LABELS = {
   BREAKDOWN: 'Hỏng xe / Chết máy',
   FIRE: 'Cháy nổ',
   FLOOD: 'Ngập nước',
+  SOS_EMERGENCY: 'SOS Khẩn cấp',
   OTHER: 'Sự cố khác',
 };
 
@@ -47,6 +50,36 @@ function timeAgo(date) {
   return `${Math.floor(mins / 60)} giờ trước`;
 }
 
+// Detect SOS by code prefix — backend may store type as null or 'OTHER' for SOS
+function isSOS(inc) {
+  return inc.code?.startsWith('SOS') || inc.type === 'SOS_EMERGENCY';
+}
+
+function getTypeLabel(inc) {
+  if (isSOS(inc)) return 'SOS Khẩn cấp';
+  return TYPE_LABELS[inc.type] || 'Sự cố khác';
+}
+
+function getTypeIcon(inc) {
+  if (isSOS(inc)) return TYPE_ICONS.SOS_EMERGENCY;
+  return TYPE_ICONS[inc.type] || TYPE_ICONS.OTHER;
+}
+
+function getTypeBg(inc) {
+  if (isSOS(inc)) return TYPE_BG.SOS_EMERGENCY;
+  return TYPE_BG[inc.type] || TYPE_BG.OTHER;
+}
+
+// Extract first meaningful street name segment (skip pure house numbers)
+function getShortAddress(address) {
+  if (!address) return 'Không có địa chỉ';
+  const parts = address.split(',').map(s => s.trim());
+  // Find first part that isn't purely numeric
+  const street = parts.find(p => isNaN(Number(p.replace(/[\s-]/g, ''))));
+  return street || parts[0];
+}
+
+
 export default function Incidents() {
   const navigate = useNavigate();
   const { incidents, loading, fetchIncidents } = useApp();
@@ -63,25 +96,25 @@ export default function Incidents() {
     COMPLETED: incidents.filter(i => i.status === 'COMPLETED').length,
   }), [incidents]);
 
-  // Filtered list
+  // Filtered + sorted list
   const filtered = useMemo(() => {
     let list = incidents;
     if (activeFilter === 'PENDING') list = list.filter(i => i.status === 'PENDING');
-    else if (activeFilter === 'ACTIVE') list = list.filter(i => ['ASSIGNED', 'ARRIVED', 'PROCESSING'].includes(i.status));
+    else if (activeFilter === 'ACTIVE') list = list.filter(i => ['ASSIGNED', 'ARRIVED', 'PROCESSING', 'OFFERING'].includes(i.status));
     else if (activeFilter === 'COMPLETED') list = list.filter(i => i.status === 'COMPLETED');
 
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(i =>
-        i.code?.toLowerCase().includes(q) ||
-        i.location?.address?.toLowerCase().includes(q) ||
-        i.reportedBy?.name?.toLowerCase().includes(q) ||
-        TYPE_LABELS[i.type]?.toLowerCase().includes(q)
+        (i.code || '').toLowerCase().includes(q) ||
+        (i.location?.address || '').toLowerCase().includes(q) ||
+        (i.reportedBy?.name || '').toLowerCase().includes(q) ||
+        (getTypeLabel(i) || '').toLowerCase().includes(q)
       );
     }
 
-    return list.sort((a, b) => {
-      // SOS first, then by date
+    // Newest first always; CRITICAL incidents bubble up within same time window
+    return [...list].sort((a, b) => {
       if (a.severity === 'CRITICAL' && b.severity !== 'CRITICAL') return -1;
       if (b.severity === 'CRITICAL' && a.severity !== 'CRITICAL') return 1;
       return new Date(b.createdAt) - new Date(a.createdAt);
@@ -177,8 +210,8 @@ export default function Incidents() {
               {filtered.map(inc => {
                 const isCritical = inc.severity === 'CRITICAL';
                 const statusInfo = STATUS_LABELS[inc.status] || { label: inc.status, dot: 'bg-gray-400' };
-                const Icon = TYPE_ICONS[inc.type] || TYPE_ICONS.OTHER;
-                const bgCls = TYPE_BG[inc.type] || TYPE_BG.OTHER;
+                const Icon = getTypeIcon(inc);
+                const bgCls = getTypeBg(inc);
 
                 return (
                   <div
@@ -197,9 +230,9 @@ export default function Incidents() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-0.5">
                         <h4 className="font-bold text-gray-900 text-[14px] truncate">
-                          {TYPE_LABELS[inc.type]} — {inc.location?.address?.split(',')[0] || 'Không có địa chỉ'}
+                          {getTypeLabel(inc)} — {getShortAddress(inc.location?.address)}
                         </h4>
-                        {isCritical && (
+                        {(isCritical || isSOS(inc)) && (
                           <span className="bg-red-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded shrink-0">KHẨN CẤP</span>
                         )}
                       </div>

@@ -100,10 +100,17 @@ app.get('/health', (req, res) => {
   });
 });
 
+const { maintenanceCheck } = require('./middleware/maintenanceMiddleware');
+const { protect } = require('./middleware/authMiddleware');
+
 // ==========================================
 // API ROUTES
 // ==========================================
 app.use('/api/v1/auth', authRoutes);
+
+// Protect all following routes and check for maintenance
+app.use('/api/v1', protect, maintenanceCheck);
+
 app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/incidents', incidentRoutes);
 app.use('/api/v1/rescue-teams', rescueTeamRoutes);

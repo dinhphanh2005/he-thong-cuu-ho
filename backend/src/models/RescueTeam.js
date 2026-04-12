@@ -11,7 +11,7 @@ const rescueTeamSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['AVAILABLE', 'BUSY', 'OFFLINE'],
+      enum: ['AVAILABLE', 'PROPOSED', 'BUSY', 'OFFLINE', 'SUSPENDED'],
       default: 'AVAILABLE',
     },
     currentLocation: {

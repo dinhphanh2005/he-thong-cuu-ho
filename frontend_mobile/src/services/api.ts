@@ -56,6 +56,9 @@ export const authAPI = {
 
   changePassword: (newPassword: string) =>
     api.post('/auth/change-password', { newPassword }),
+
+  updateFcmToken: (fcmToken: string) =>
+    api.patch('/auth/fcm-token', { fcmToken }),
 };
 
 // ==================== INCIDENTS ====================
@@ -71,15 +74,22 @@ export const incidentAPI = {
 
   getMy: (params?: object) => api.get('/incidents/my', { params }),
 
+  getActiveMy: () => api.get('/incidents/my/active'),
+
   track: (code: string) => api.get(`/incidents/track/${code}`),
 
   getActiveRescue: () => api.get('/incidents/rescue/active'),
+
+  getRescueHistory: (params?: object) => api.get('/incidents/rescue/history', { params }),
 
   updateStatus: (id: string, status: string, note?: string, estimatedArrivalMinutes?: number) =>
     api.patch(`/incidents/${id}/status`, { status, note, estimatedArrivalMinutes }),
 
   refuse: (id: string, reason?: string) =>
     api.patch(`/incidents/${id}/refuse`, { reason }),
+
+  accept: (id: string) =>
+    api.patch(`/incidents/${id}/accept`),
 
   sos: (coordinates: number[], description?: string) =>
     api.post('/incidents/sos', { coordinates, description }),

@@ -14,17 +14,40 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.frontend-mobile"
+      "bundleIdentifier": "com.anonymous.frontend-mobile",
+      "infoPlist": {
+        "NSUserNotificationUsageDescription": "Ứng dụng cần quyền thông báo để nhận cảnh báo khẩn cấp từ hệ thống cứu hộ."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#1C3A6E",
+          "sounds": []
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "af38caa7-3503-4be2-81bc-f53993b7946c"
+      }
+    },
+    "owner": "dinhphanh"
   }
 }

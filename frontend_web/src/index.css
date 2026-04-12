@@ -4,7 +4,10 @@
 
 @layer base {
   body {
-    @apply antialiased text-gray-900 bg-[#F8F9FA];
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    color: #111827;
+    background-color: #f8f9fa;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
   }
 }

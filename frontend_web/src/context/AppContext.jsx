@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { incidentAPI, rescueAPI, reportAPI } from '../services/api';
+import { incidentAPI, rescueAPI, reportAPI, adminAPI, authAPI } from '../services/api';
 import { connectSocket } from '../services/socket';
 
 const AppContext = createContext(null);
@@ -10,8 +10,21 @@ export function AppProvider({ children }) {
   const [dashboard, setDashboard] = useState(null);
   const [loading, setLoading] = useState(true);
   const [pendingCount, setPendingCount] = useState(0);
+  const [config, setConfig] = useState(null);
+  const [personalSettings, setPersonalSettings] = useState(null);
 
   // ── Fetch all data ──────────────────────────────────────────────────────────
+  const fetchMe = useCallback(async () => {
+    try {
+      const { data } = await authAPI.getMe();
+      if (data.success && data.data.settings) {
+        setPersonalSettings(data.data.settings);
+      }
+    } catch (e) {
+      console.error('fetchMe:', e.message);
+    }
+  }, []);
+
   const fetchIncidents = useCallback(async () => {
     try {
       const { data } = await incidentAPI.getAll({ limit: 100 });
@@ -41,11 +54,31 @@ export function AppProvider({ children }) {
     }
   }, []);
 
+  const fetchConfig = useCallback(async () => {
+    try {
+      const { data } = await adminAPI.getConfig();
+      setConfig(data.data);
+    } catch (e) {
+      console.error('fetchConfig:', e.message);
+    }
+  }, []);
+
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    await Promise.all([fetchIncidents(), fetchTeams(), fetchDashboard()]);
+    await Promise.all([fetchMe(), fetchIncidents(), fetchTeams(), fetchDashboard(), fetchConfig()]);
     setLoading(false);
-  }, [fetchIncidents, fetchTeams, fetchDashboard]);
+  }, [fetchMe, fetchIncidents, fetchTeams, fetchDashboard, fetchConfig]);
+
+  const updatePersonalSettings = async (updates) => {
+    try {
+      const { data } = await authAPI.updateSettings(updates);
+      if (data.success) {
+        setPersonalSettings(data.data);
+      }
+    } catch (e) {
+      console.error('updatePersonalSettings:', e.message);
+    }
+  };
 
   // ── Socket.IO realtime ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -122,6 +155,11 @@ export function AppProvider({ children }) {
       fetchDashboard();
     });
 
+    // System configuration updated
+    socket.on('system:config-updated', (newConfig) => {
+      setConfig(newConfig);
+    });
+
     return () => {
       socket.off('incident:new');
       socket.off('incident:updated');
@@ -142,8 +180,9 @@ export function AppProvider({ children }) {
     <AppContext.Provider value={{
       incidents, teams, dashboard, loading, pendingCount,
       availableTeams, busyTeams, pendingIncidents, activeIncidents,
-      fetchIncidents, fetchTeams, fetchDashboard, fetchAll,
-      setIncidents,
+      fetchIncidents, fetchTeams, fetchDashboard, fetchConfig, fetchAll,
+      setIncidents, config, setConfig,
+      personalSettings, updatePersonalSettings,
     }}>
       {children}
     </AppContext.Provider>

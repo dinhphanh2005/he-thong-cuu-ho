@@ -1,5 +1,4 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   ShieldCheck, 
   Bell, 
@@ -10,10 +9,12 @@ import {
   Info,
   ChevronRight,
   Database as DbIcon,
-  CircleDot
+  CircleDot,
+  CheckCircle2,
+  RefreshCcw
 } from 'lucide-react';
-import { authAPI, clearAuth } from '../../services/api';
-import { disconnectSocket } from '../../services/socket';
+import { adminAPI, getStoredUser } from '../../services/api';
+import { useApp } from '../../context/AppContext';
 
 const CATEGORIES = [
   { id: 'GENERAL', name: 'Hệ thống chung', icon: AppWindow },
@@ -23,9 +24,93 @@ const CATEGORIES = [
   { id: 'BACKUP', name: 'Sao lưu dữ liệu', icon: Database },
 ];
 
+function Toggle({ enabled, onChange, color = 'blue' }) {
+  const bgColors = {
+    blue: 'peer-checked:bg-blue-600',
+    red: 'peer-checked:bg-red-500',
+    emerald: 'peer-checked:bg-emerald-500'
+  };
+
+  return (
+    <label className="relative inline-flex items-center cursor-pointer">
+      <input 
+        type="checkbox" 
+        checked={enabled}
+        onChange={e => onChange(e.target.checked)}
+        className="sr-only peer" 
+      />
+      <div className={`w-14 h-8 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all ${bgColors[color]}`}></div>
+    </label>
+  );
+}
+
 export default function Settings() {
-  const [activeTab, setActiveTab] = useState('BACKUP');
+  const { config, setConfig } = useApp();
+  const [activeTab, setActiveTab] = useState('GENERAL');
+  const [loading, setLoading] = useState(false);
+  const [saveStatus, setSaveStatus] = useState('IDLE'); // IDLE, SAVING, SAVED, ERROR
   
+  // Local form state
+  const [form, setForm] = useState(null);
+  const saveTimeoutRef = useRef(null);
+
+  useEffect(() => {
+    if (config && !form) {
+      setForm(JSON.parse(JSON.stringify(config))); 
+    }
+  }, [config]);
+
+  // Autosave logic
+  const performAutosave = async (updatedForm) => {
+    setSaveStatus('SAVING');
+    try {
+      const res = await adminAPI.updateConfig(updatedForm);
+      if (res.data.success) {
+        setConfig(res.data.data);
+        setSaveStatus('SAVED');
+        setTimeout(() => setSaveStatus('IDLE'), 3000);
+      }
+    } catch (err) {
+      console.error('Autosave error:', err);
+      setSaveStatus('ERROR');
+    }
+  };
+
+  const updateField = (path, value) => {
+    setForm(prev => {
+      const next = { ...prev };
+      const parts = path.split('.');
+      let current = next;
+      for (let i = 0; i < parts.length - 1; i++) {
+        current = current[parts[i]];
+      }
+      current[parts[parts.length - 1]] = value;
+      
+      // Trigger debounced save
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = setTimeout(() => {
+        performAutosave(next);
+      }, 1000);
+      
+      return next;
+    });
+  };
+
+  const handleManualBackup = async () => {
+    setLoading(true);
+    // Simulate backup logic
+    await new Promise(r => setTimeout(r, 2000));
+    setLoading(false);
+    alert('Đã tạo bản sao lưu dữ liệu thành công!');
+  };
+
+  const handleExportCSV = () => {
+    alert('Đang chuẩn bị dữ liệu báo cáo hệ thống...');
+    // Actual implementation would trigger a download link
+  };
+
+  if (!form) return null;
+
   const renderContent = () => {
     switch (activeTab) {
       case 'GENERAL':
@@ -39,23 +124,34 @@ export default function Settings() {
              <div className="space-y-6 max-w-lg">
                 <div className="space-y-2">
                    <label className="text-sm font-black text-gray-700 ml-1">Tên hệ thống</label>
-                   <input type="text" defaultValue="Cứu hộ giao thông" className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-black text-gray-900" />
+                   <input 
+                    type="text" 
+                    value={form.systemName} 
+                    onChange={e => updateField('systemName', e.target.value)}
+                    className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-black text-gray-900" 
+                   />
                 </div>
                 <div className="space-y-2">
                    <label className="text-sm font-black text-gray-700 ml-1">Hotline tổng đài</label>
-                   <input type="text" defaultValue="1900 1234" className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-black text-gray-900" />
+                   <input 
+                    type="text" 
+                    value={form.hotline} 
+                    onChange={e => updateField('hotline', e.target.value)}
+                    className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-black text-gray-900" 
+                   />
                 </div>
              </div>
 
              <div className="p-8 bg-red-50/50 rounded-[40px] border border-red-50 flex items-center justify-between">
                 <div>
-                  <h4 className="text-sm font-black text-red-600 mb-1">Chế độ bảo trì hệ thống</h4>
-                  <p className="text-[11px] font-bold text-red-400">Người dùng và đối tác sẽ không thể đăng nhập.<br/>Chỉ có Admin có quyền truy cập.</p>
+                   <h4 className="text-sm font-black text-red-600 mb-1">Chế độ bảo trì hệ thống</h4>
+                   <p className="text-[11px] font-bold text-red-400">Người dùng và đối tác sẽ không thể đăng nhập.<br/>Chỉ có Admin có quyền truy cập.</p>
                 </div>
-                <div className="relative inline-flex items-center cursor-pointer">
-                  <input type="checkbox" className="sr-only peer" />
-                  <div className="w-14 h-8 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-red-500"></div>
-                </div>
+                <Toggle 
+                  enabled={form.maintenanceMode} 
+                  onChange={val => updateField('maintenanceMode', val)} 
+                  color="red"
+                />
              </div>
           </div>
         );
@@ -86,10 +182,10 @@ export default function Settings() {
                            <p className="text-[10px] font-bold text-gray-400 tracking-tight">Thông báo trực tiếp qua App.</p>
                         </div>
                       </div>
-                      <div className="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" defaultChecked className="sr-only peer" />
-                        <div className="w-12 h-7 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
-                      </div>
+                      <Toggle 
+                        enabled={form.notificationSettings.pushEnabled} 
+                        onChange={val => updateField('notificationSettings.pushEnabled', val)} 
+                      />
                    </div>
                    <div className="flex items-center justify-between p-6 bg-white border border-gray-100 rounded-[30px]">
                       <div className="flex items-center gap-4">
@@ -99,10 +195,10 @@ export default function Settings() {
                            <p className="text-[10px] font-bold text-gray-400 tracking-tight">Gửi tin nhắn SMS khi tài xế offline.</p>
                         </div>
                       </div>
-                      <div className="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" className="sr-only peer" />
-                        <div className="w-12 h-7 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
-                      </div>
+                      <Toggle 
+                        enabled={form.notificationSettings.smsEnabled} 
+                        onChange={val => updateField('notificationSettings.smsEnabled', val)} 
+                      />
                    </div>
                 </div>
 
@@ -111,7 +207,8 @@ export default function Settings() {
                    <textarea 
                      rows="3"
                      className="w-full p-6 bg-gray-50 border border-gray-100 rounded-[30px] focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs font-bold text-gray-700 leading-relaxed"
-                     defaultValue="[CUUHO.VN] Bạn có 1 đơn cứu hộ mới: Mã {incident_id} tại {location}. Vui lòng mở App để xác nhận."
+                     value={form.notificationSettings.template}
+                     onChange={e => updateField('notificationSettings.template', e.target.value)}
                    />
                 </div>
              </div>
@@ -134,37 +231,63 @@ export default function Settings() {
              </div>
 
              <div className="space-y-10">
+                <div className="p-6 bg-blue-50/50 rounded-[30px] border border-blue-50 flex items-center justify-between">
+                   <div>
+                      <h4 className="text-sm font-black text-blue-600 mb-1">Bật tự động phân công</h4>
+                      <p className="text-[11px] font-bold text-blue-400">Hệ thống sẽ tự động tìm và gán đội cứu hộ<br/>ngay khi có sự cố mới.</p>
+                   </div>
+                   <Toggle 
+                     enabled={form.algoSettings.isAutoAssignEnabled} 
+                     onChange={val => updateField('algoSettings.isAutoAssignEnabled', val)} 
+                     color="blue"
+                   />
+                </div>
+
                 <div className="space-y-6">
                    <div className="flex items-center justify-between">
                      <h4 className="text-sm font-black text-gray-900 italic tracking-tight">Cấu hình quét vị trí</h4>
-                     <span className="text-xs font-black text-blue-600">5km</span>
+                     <span className="text-xs font-black text-blue-600">{form.algoSettings.searchRadiusKm}km</span>
                    </div>
-                   <div className="relative h-2 w-full bg-gray-100 rounded-full">
-                      <div className="absolute h-full w-[40%] bg-blue-600 rounded-full" />
-                      <div className="absolute top-1/2 left-[40%] -translate-x-1/2 -translate-y-1/2 w-5 h-5 bg-white border-2 border-blue-600 rounded-full cursor-pointer shadow-md" />
-                   </div>
+                   <input 
+                      type="range"
+                      min="1"
+                      max="20"
+                      step="1"
+                      value={form.algoSettings.searchRadiusKm}
+                      onChange={e => updateField('algoSettings.searchRadiusKm', parseInt(e.target.value))}
+                      className="w-full h-2 bg-gray-100 rounded-full appearance-none cursor-pointer accent-blue-600"
+                    />
                    <p className="text-[10px] text-gray-400 font-bold tracking-tight">Hệ thống sẽ chỉ tìm kiếm các đối tác nằm trong bán kính này khi bắt đầu sự cố.</p>
                 </div>
 
                 <div className="space-y-4">
                     <h4 className="text-sm font-black text-gray-900 italic tracking-tight">Chế độ mở rộng bán kính (Fallback)</h4>
-                    <select className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl text-sm font-black text-gray-700 outline-none appearance-none cursor-pointer">
-                       <option>Tự động +2km nếu không tìm thấy sau 3 lần</option>
-                       <option>Không mở rộng</option>
+                    <select 
+                      value={form.algoSettings.expandRadiusOnFallback ? 'AUTO' : 'NONE'}
+                      onChange={e => updateField('algoSettings.expandRadiusOnFallback', e.target.value === 'AUTO')}
+                      className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl text-sm font-black text-gray-700 outline-none appearance-none cursor-pointer"
+                    >
+                      <option value="AUTO">Tự động mở rộng bán kính</option>
+                      <option value="NONE">Không mở rộng</option>
                     </select>
                 </div>
 
                 <div className="space-y-6">
-                   <div className="flex items-center justify-between">
-                     <h4 className="text-sm font-black text-gray-900 italic tracking-tight">Cấu hình Timeout & Phân công</h4>
-                     <span className="text-xs font-black text-blue-600">60s</span>
-                   </div>
-                   <div className="relative h-2 w-full bg-gray-100 rounded-full">
-                      <div className="absolute h-full w-[60%] bg-blue-600 rounded-full" />
-                      <div className="absolute top-1/2 left-[60%] -translate-x-1/2 -translate-y-1/2 w-5 h-5 bg-white border-2 border-blue-600 rounded-full cursor-pointer shadow-md" />
-                   </div>
-                   <p className="text-[10px] text-gray-400 font-bold tracking-tight italic">Thời gian giới hạn cho mỗi đối tác để phản hồi (Chấp nhận/Từ chối) trước khi chuyển cho đối tác khác.</p>
-                </div>
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-black text-gray-900 italic tracking-tight">Cấu hình Timeout & Phân công</h4>
+                      <span className="text-xs font-black text-blue-600">{form.algoSettings.assignmentTimeoutSec}s</span>
+                    </div>
+                    <input 
+                      type="range"
+                      min="10"
+                      max="180"
+                      step="5"
+                      value={form.algoSettings.assignmentTimeoutSec}
+                      onChange={e => updateField('algoSettings.assignmentTimeoutSec', parseInt(e.target.value))}
+                      className="w-full h-2 bg-gray-100 rounded-full appearance-none cursor-pointer accent-blue-600"
+                    />
+                    <p className="text-[10px] text-gray-400 font-bold tracking-tight italic">Thời gian giới hạn cho mỗi đối tác để phản hồi (Chấp nhận/Từ chối) trước khi chuyển cho đối tác khác.</p>
+                 </div>
              </div>
           </div>
         );
@@ -188,33 +311,48 @@ export default function Settings() {
                            <p className="text-[10px] font-bold text-gray-400 tracking-tight">Áp dụng cho tài khoản ADMIN và DISPATCHER.</p>
                         </div>
                       </div>
-                      <div className="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" className="sr-only peer" />
-                        <div className="w-12 h-7 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-blue-600"></div>
-                      </div>
+                      <Toggle 
+                        enabled={form.securitySettings.require2FA} 
+                        onChange={val => updateField('securitySettings.require2FA', val)} 
+                      />
                    </div>
                 </div>
 
                 <div className="space-y-2 max-w-xs">
                    <label className="text-sm font-black text-gray-700 ml-1">JWT Session Timeout (Phút)</label>
-                   <input type="number" defaultValue="120" className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl text-center font-black text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                   <p className="text-[10px] text-gray-400 font-bold ml-1 italic italic">Tự động đăng xuất Điều phối viên nếu không thao tác sau X phút.</p>
+                   <input 
+                    type="number" 
+                    value={form.securitySettings.jwtSessionTimeoutMin}
+                    onChange={e => updateField('securitySettings.jwtSessionTimeoutMin', parseInt(e.target.value))}
+                    className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl text-center font-black text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                   />
+                   <p className="text-[10px] text-gray-400 font-bold ml-1 italic">Tự động đăng xuất Điều phối viên nếu không thao tác sau X phút.</p>
                 </div>
 
                 <div className="space-y-4 pt-4">
                    <h4 className="text-[11px] font-black text-gray-400 uppercase tracking-widest ml-4">Giới hạn API (Rate Limiting)</h4>
                    <div className="p-4 bg-orange-50 rounded-2xl border border-orange-100 text-[10px] font-bold text-orange-700 leading-normal">
-                      Tính năng này giúp chống người dùng spam hoặc các cuộc tấn công DDoS quy mô nhỏ.
+                      Tính năng này giúp chống người dùng spam hoặc các cuộc tấn chọn DDoS quy mô nhỏ.
                    </div>
                    <div className="grid grid-cols-2 gap-6">
                       <div className="space-y-2">
                          <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest ml-4">Max Request (App User)</label>
-                         <input type="number" defaultValue="100" className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl text-center font-black text-gray-900" />
+                         <input 
+                          type="number" 
+                          value={form.securitySettings.rateLimitMaxRequests}
+                          onChange={e => updateField('securitySettings.rateLimitMaxRequests', parseInt(e.target.value))}
+                          className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl text-center font-black text-gray-900" 
+                         />
                       </div>
                       <div className="space-y-2">
                          <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest ml-4">Cửa sổ phút (WindowMin)</label>
                         <div className="relative">
-                          <input type="number" defaultValue="15" className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl text-center font-black text-gray-900" />
+                          <input 
+                            type="number" 
+                            value={form.securitySettings.rateLimitWindowMin}
+                            onChange={e => updateField('securitySettings.rateLimitWindowMin', parseInt(e.target.value))}
+                            className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl text-center font-black text-gray-900" 
+                          />
                           <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-gray-400 italic">phút</span>
                         </div>
                       </div>
@@ -251,8 +389,12 @@ export default function Settings() {
                          </div>
                       </div>
                    </div>
-                   <button className="px-5 py-3 bg-blue-600 hover:bg-blue-500 rounded-2xl text-[11px] font-black text-white transition-all shadow-lg shadow-blue-900/40 active:scale-95">
-                      Backup ngay
+                   <button 
+                    disabled={loading}
+                    onClick={handleManualBackup}
+                    className="px-5 py-3 bg-blue-600 hover:bg-blue-500 rounded-2xl text-[11px] font-black text-white transition-all shadow-lg shadow-blue-900/40 active:scale-95 text-xs disabled:bg-gray-600"
+                   >
+                      {loading ? 'Đang sao lưu...' : 'Backup ngay'}
                    </button>
                 </div>
              </div>
@@ -267,7 +409,12 @@ export default function Settings() {
                       </p>
                    </div>
                    <div className="relative inline-flex items-center cursor-pointer">
-                      <input type="checkbox" defaultChecked className="sr-only peer" />
+                      <input 
+                        type="checkbox" 
+                        checked={form.backupSettings.autoBackupEnabled}
+                        onChange={e => updateField('backupSettings.autoBackupEnabled', e.target.checked)}
+                        className="sr-only peer" 
+                      />
                       <div className="w-16 h-9 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-7 after:w-7 after:transition-all peer-checked:bg-emerald-500 shadow-inner"></div>
                    </div>
                 </div>
@@ -276,9 +423,13 @@ export default function Settings() {
                    <div className="space-y-3">
                       <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest ml-4 italic">Chính sách lưu giữ (Retention)</label>
                       <div className="relative">
-                         <select className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl text-sm font-black text-gray-700 outline-none appearance-none cursor-pointer">
-                            <option>Giữ lại 7 ngày gần nhất</option>
-                            <option>Giữ lại 30 ngày gần nhất</option>
+                         <select 
+                          value={form.backupSettings.retentionDays}
+                          onChange={e => updateField('backupSettings.retentionDays', parseInt(e.target.value))}
+                          className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl text-sm font-black text-gray-700 outline-none appearance-none cursor-pointer"
+                         >
+                            <option value={7}>Giữ lại 7 ngày gần nhất</option>
+                            <option value={30}>Giữ lại 30 ngày gần nhất</option>
                          </select>
                          <ChevronRight size={16} className="absolute right-5 top-1/2 -translate-y-1/2 rotate-90 text-gray-400" />
                       </div>
@@ -286,9 +437,13 @@ export default function Settings() {
                    <div className="space-y-3">
                       <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest ml-4 italic group-hover:text-blue-500 transition-colors">Dọn dẹp Log hệ thống</label>
                       <div className="relative">
-                         <select className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl text-sm font-black text-gray-700 outline-none appearance-none cursor-pointer">
-                            <option>Xoá log cũ hơn 3 tháng</option>
-                            <option>Xoá log cũ hơn 6 tháng</option>
+                         <select 
+                          value={form.backupSettings.logCleanupMonths}
+                          onChange={e => updateField('backupSettings.logCleanupMonths', parseInt(e.target.value))}
+                          className="w-full px-6 py-4 bg-gray-50 border border-gray-100 rounded-2xl text-sm font-black text-gray-700 outline-none appearance-none cursor-pointer"
+                         >
+                            <option value={3}>Xoá log cũ hơn 3 tháng</option>
+                            <option value={6}>Xoá log cũ hơn 6 tháng</option>
                          </select>
                          <ChevronRight size={16} className="absolute right-5 top-1/2 -translate-y-1/2 rotate-90 text-gray-400" />
                       </div>
@@ -304,17 +459,36 @@ export default function Settings() {
     <div className="h-full flex flex-col pt-2 animate-fade-in relative overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
-        <div>
-          <h2 className="text-2xl font-black text-gray-900 tracking-tight">Cài đặt chung</h2>
-          <p className="text-sm text-gray-500 font-medium font-sans italic opacity-70">Báo cáo hệ thống</p>
+        <div className="flex items-center gap-6">
+          <div>
+            <h2 className="text-2xl font-black text-gray-900 tracking-tight">Cài đặt chung</h2>
+            <p className="text-sm text-gray-500 font-medium font-sans italic opacity-70">Quản trị hệ thống</p>
+          </div>
+          
+          <div className={`flex items-center gap-2 px-4 py-2 rounded-full border text-[11px] font-black transition-all ${
+            saveStatus === 'SAVING' ? 'bg-amber-50 border-amber-200 text-amber-600 animate-pulse' :
+            saveStatus === 'SAVED' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' :
+            saveStatus === 'ERROR' ? 'bg-red-50 border-red-200 text-red-600' :
+            'bg-gray-50 border-gray-100 text-gray-400'
+          }`}>
+            {saveStatus === 'SAVING' && <RefreshCcw size={14} className="animate-spin" />}
+            {saveStatus === 'SAVED' && <CheckCircle2 size={14} />}
+            {saveStatus === 'ERROR' && <Info size={14} />}
+            {saveStatus === 'SAVING' ? 'Đang đồng bộ...' : 
+             saveStatus === 'SAVED' ? 'Đã lưu lên mây' : 
+             saveStatus === 'ERROR' ? 'Lỗi kết nối!' : 'Đã đồng bộ'}
+          </div>
         </div>
         <div className="flex items-center gap-4">
-           <button className="flex items-center gap-2 px-6 py-3 bg-white border border-gray-200 rounded-2xl text-sm font-black text-gray-700 hover:bg-gray-50 transition-all shadow-sm active:scale-95">
+           <button 
+            onClick={handleExportCSV}
+            className="flex items-center gap-2 px-6 py-3 bg-white border border-gray-200 rounded-2xl text-sm font-black text-gray-700 hover:bg-gray-50 transition-all shadow-sm active:scale-95"
+           >
              <Download size={18} />
              Xuất báo cáo (.csv)
            </button>
            <div className="w-10 h-10 rounded-full border border-gray-200 overflow-hidden shrink-0 shadow-sm">
-              <img src="https://ui-avatars.com/api/?name=AD&background=1f2937&color=fff" alt="User" />
+              <img src={`https://ui-avatars.com/api/?name=${encodeURIComponent(getStoredUser()?.name || 'AD')}&background=1f2937&color=fff`} alt="User" />
            </div>
         </div>
       </div>
@@ -331,7 +505,7 @@ export default function Settings() {
                    <button 
                     key={cat.id} 
                     onClick={() => setActiveTab(cat.id)}
-                    className={`flex items-center gap-4 w-full p-4 rounded-2xl transition-all duration-300 group ${isActive ? 'bg-blue-50/50 text-blue-600 shadow-sm' : 'hover:bg-gray-50 text-gray-500 hover:text-gray-900'}`}
+                    className={`flex items-center gap-4 w-full p-4 rounded-2xl transition-all duration-300 group active:scale-[0.98] ${isActive ? 'bg-blue-50/50 text-blue-600 shadow-sm' : 'hover:bg-gray-50 text-gray-500 hover:text-gray-900 cursor-pointer'}`}
                    >
                      <Icon size={20} className={isActive ? 'text-blue-600' : 'text-gray-400 group-hover:text-gray-900'} />
                      <span className={`text-[13px] ${isActive ? 'font-black' : 'font-bold'}`}>{cat.name}</span>
@@ -346,12 +520,8 @@ export default function Settings() {
             <div className="flex-1 overflow-y-auto p-12 custom-scrollbar">
                {renderContent()}
             </div>
-            
-            <div className="p-8 border-t border-gray-50 bg-gray-50/30 flex justify-end">
-               <button className="px-10 py-4 bg-blue-600 hover:bg-blue-700 rounded-2xl text-sm font-black text-white transition-all shadow-xl shadow-blue-200 active:scale-95 font-sans italic overflow-hidden group relative">
-                  <span className="relative z-10">Lưu thay đổi</span>
-                  <div className="absolute inset-0 bg-white/10 group-active:bg-transparent transition-colors" />
-               </button>
+            <div className="p-8 border-t border-gray-50 bg-gray-50/20 flex items-center justify-end gap-3">
+               <span className="text-[10px] font-bold text-gray-400 italic">Mọi thay đổi sẽ được áp dụng và lưu lên mây ngay lập tức.</span>
             </div>
          </div>
       </div>

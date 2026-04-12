@@ -225,7 +225,7 @@ if (process.env.NODE_ENV !== 'production') {
       });
     }
     const user = await User.create({
-      name: 'Super Admin',
+      name: 'Administrator',
       email: 'admin@cuuho.vn',
       phone: '0909999999',
       passwordHash: '123456',

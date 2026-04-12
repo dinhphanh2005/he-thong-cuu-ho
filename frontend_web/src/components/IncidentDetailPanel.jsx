@@ -5,6 +5,7 @@ import { X, MapPin, User, AlertCircle, Zap } from 'lucide-react';
 import { incidentAPI, rescueAPI } from '../services/api';
 import { useApp } from '../context/AppContext';
 import { useNavigate } from 'react-router-dom';
+import incidentFallbackImg from '../assets/images/incident.jpg';
 
 const STATUS_LABELS = {
   PENDING: { label: 'Chờ xử lý', color: 'bg-yellow-100 text-yellow-700' },
@@ -192,17 +193,42 @@ export default function IncidentDetailPanel({ incidentId, onClose }) {
               <CircleMarker center={incidentCoords} radius={9} pathOptions={{ color: '#E74C3C', fillColor: '#E74C3C', fillOpacity: 1 }}>
                 <Popup>Vị trí sự cố</Popup>
               </CircleMarker>
+              
               {teamCoords && (
                 <CircleMarker center={teamCoords} radius={8} pathOptions={{ color: '#496FC0', fillColor: '#496FC0', fillOpacity: 0.95 }}>
                   <Popup>{assignedTeamLive?.name || incident.assignedTeam?.name || 'Đội cứu hộ'}</Popup>
                 </CircleMarker>
               )}
-              {incidentCoords && teamCoords && (
-                <Polyline positions={[teamCoords, incidentCoords]} pathOptions={{ color: '#496FC0', dashArray: '6 8' }} />
+
+              {/* Tùy chọn hiển thị: Phổ biến là đường đi thực tế (routingPath) */}
+              {incident.routingPath?.length > 0 ? (
+                <Polyline 
+                  positions={incident.routingPath.map(p => [p[1], p[0]])} 
+                  pathOptions={{ color: '#3b82f6', weight: 4, opacity: 0.8 }} 
+                />
+              ) : (
+                incidentCoords && teamCoords && (
+                  <Polyline positions={[teamCoords, incidentCoords]} pathOptions={{ color: '#496FC0', dashArray: '6 8' }} />
+                )
               )}
             </MapContainer>
           ) : null}
         </div>
+
+        {/* ETA Display */}
+        {incident.estimatedArrival && !['COMPLETED', 'CANCELLED'].includes(incident.status) && (
+          <div className="px-5 mb-3">
+             <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 flex items-center justify-between">
+                <div>
+                   <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Thời gian dự kiến đến</p>
+                   <p className="text-sm font-black text-blue-700">
+                      {new Date(incident.estimatedArrival).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                   </p>
+                </div>
+                <Zap size={20} className="text-blue-500 animate-pulse" />
+             </div>
+          </div>
+        )}
 
         {/* Location */}
         <div className="px-5 mb-4">
@@ -253,7 +279,8 @@ export default function IncidentDetailPanel({ incidentId, onClose }) {
                   className="w-24 h-24 object-cover rounded-lg shrink-0 cursor-pointer hover:opacity-90 border border-gray-100"
                   onClick={() => window.open(photo, '_blank')}
                   onError={(e) => {
-                    e.target.src = "../../assets/images/incident.png";
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = incidentFallbackImg;
                   }}
                 />
               ))}
@@ -302,11 +329,11 @@ export default function IncidentDetailPanel({ incidentId, onClose }) {
       </div>
 
       {/* Force Assign Footer */}
-      {['PENDING', 'ASSIGNED'].includes(incident.status) && (
+      {['PENDING', 'ASSIGNED', 'OFFERING'].includes(incident.status) && (
         <div className="px-5 py-4 border-t border-gray-100 bg-amber-50">
           <p className="text-xs text-amber-700 mb-2 font-medium flex items-center gap-1">
             <AlertCircle size={12} />
-            Hệ thống không tìm thấy xe phù hợp tự động. Vui lòng điều phối thủ công.
+            Hệ thống đang đề xuất tự động hoặc chưa có xe nhận. Bạn có thể chỉ định thủ công để ghi đè.
           </p>
           <select
             value={selectedTeam}

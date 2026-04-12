@@ -2,6 +2,7 @@ const RescueTeam = require('../models/RescueTeam');
 const Incident = require('../models/Incident');
 const User = require('../models/User');
 const { decorateTeam, recalculateTeamStatus } = require('../services/teamAvailabilityService');
+const { getRoute } = require('../services/routingService');
 
 /**
  * @desc    Danh sách tất cả đội cứu hộ
@@ -14,9 +15,41 @@ exports.getAllTeams = async (req, res) => {
   if (req.query.type) filter.type = req.query.type;
   if (req.query.zone) filter.zone = req.query.zone;
 
-  const teams = await RescueTeam.find(filter)
-    .populate('activeIncident', 'code status severity location')
+  let teams = await RescueTeam.find(filter)
+    .populate('activeIncident', 'code status severity location assignedTeam')
     .populate('members.userId', 'name phone availabilityStatus isActive');
+
+  // Self-healing: dọn dẹp các đội có activeIncident bị mồ côi (orphaned)
+  let changed = false;
+  teams = await Promise.all(teams.map(async (team) => {
+    if (team.activeIncident) {
+      const inc = team.activeIncident;
+      const isCompletedOrCanceled = ['COMPLETED', 'CANCELLED', 'HANDLED_BY_EXTERNAL'].includes(inc.status);
+      const isAssignedToOther = inc.assignedTeam && inc.assignedTeam.toString() !== team._id.toString();
+      
+      // Nếu sự cố đã xong, hoặc đã gán cho nhóm khác
+      if (isCompletedOrCanceled || isAssignedToOther) {
+        team.activeIncident = null;
+        if (team.status === 'BUSY' || team.status === 'PROPOSED') {
+          team.status = 'AVAILABLE';
+        }
+        await RescueTeam.updateOne({ _id: team._id }, { $set: { activeIncident: null, status: team.status } });
+        changed = true;
+      }
+    } else if (team.status === 'BUSY' || team.status === 'PROPOSED') {
+      team.status = 'AVAILABLE';
+      await RescueTeam.updateOne({ _id: team._id }, { $set: { status: 'AVAILABLE' } });
+      changed = true;
+    }
+    return team;
+  }));
+
+  if (changed) {
+    const io = req.app.get('io');
+    if (io) {
+      teams.forEach(t => io.to('dispatchers').emit('rescue:status-changed', { teamId: t._id, status: t.status }));
+    }
+  }
 
   res.status(200).json({ success: true, count: teams.length, data: teams.map((team) => decorateTeam(team)) });
 };
@@ -137,6 +170,18 @@ exports.updateAvailability = async (req, res) => {
  */
 exports.assignTeamToIncident = async (req, res) => {
   const { teamId, incidentId } = req.params;
+  const io = req.app.get('io');
+
+  const releaseTeamAndBroadcast = async (targetTeamId) => {
+    const state = await recalculateTeamStatus(targetTeamId);
+    if (io && state?.team) {
+      io.to('dispatchers').emit('rescue:status-changed', {
+        teamId: state.team._id,
+        status: state.team.status,
+      });
+    }
+    return state;
+  };
 
   const [team, incident] = await Promise.all([
     RescueTeam.findById(teamId),
@@ -158,12 +203,65 @@ exports.assignTeamToIncident = async (req, res) => {
     return res.status(400).json({ success: false, message: `Sự cố đã ${incident.status}` });
   }
 
+  // 1. Dọn dẹp đội đang được ĐỀ XUẤT (OFFERING) nếu có
+  if (incident.offeredTo) {
+    const offeredTeamId = incident.offeredTo.toString();
+    if (offeredTeamId !== teamId) {
+      await releaseTeamAndBroadcast(offeredTeamId);
+      // Rút lại đề xuất phía app của đội cứu hộ
+      if (io) io.to(`rescue-team:${offeredTeamId}`).emit('incident:updated', { _id: incidentId, status: 'CANCELLED' });
+    }
+  }
+
+  // 2. Dọn dẹp đội ĐÃ ĐƯỢC GÁN trước đó (trong trường hợp Dispatcher đổi ý gán đội khác)
+  if (incident.assignedTeam && incident.assignedTeam.toString() !== teamId) {
+    const oldTeamId = incident.assignedTeam.toString();
+    const oldTeam = await RescueTeam.findById(oldTeamId);
+    if (oldTeam) {
+      oldTeam.activeIncident = null;
+      await oldTeam.save();
+      await releaseTeamAndBroadcast(oldTeamId);
+    }
+    // Thông báo cho đội cũ biết họ đã được giải phóng
+    if (io) io.to(`rescue-team:${oldTeamId}`).emit('incident:updated', { _id: incidentId, status: 'CANCELLED' });
+  }
+
+  // 3. Dọn dẹp mọi liên kết activeIncident bị kẹt trên các đội khác (nếu có)
+  const staleTeams = await RescueTeam.find({
+    activeIncident: incidentId,
+    _id: { $ne: teamId },
+  }).select('_id');
+
+  if (staleTeams.length > 0) {
+    await RescueTeam.updateMany(
+      {
+        activeIncident: incidentId,
+        _id: { $ne: teamId },
+      },
+      { $set: { activeIncident: null } }
+    );
+
+    for (const staleTeam of staleTeams) {
+      await releaseTeamAndBroadcast(staleTeam._id);
+    }
+  }
+
   incident.assignedTeam = teamId;
   incident.status = 'ASSIGNED';
+  incident.offeredTo = null; // Clear proposal
+  incident.offerExpiresAt = null; // Clear timeout
+
+  // Calculate route and ETAs upon dispatcher assignment
+  const routeInfo = await getRoute(team.currentLocation.coordinates, incident.location.coordinates);
+  if (routeInfo) {
+    incident.routingPath = routeInfo.path;
+    incident.estimatedArrival = new Date(Date.now() + routeInfo.duration * 1000);
+  }
+
   incident.timeline.push({
     status: 'ASSIGNED',
     updatedBy: req.user._id,
-    note: `Dispatcher ${req.user.name} phân công thủ công cho đội ${team.name} (${team.code})`,
+    note: `Dispatcher ${req.user.name} chỉ định trực tiếp đội ${team.name} (${team.code})`,
   });
   await incident.save();
 
@@ -171,8 +269,8 @@ exports.assignTeamToIncident = async (req, res) => {
   team.status = 'BUSY';
   await team.save();
 
-  const io = req.app.get('io');
   if (io) {
+    io.to('dispatchers').emit('rescue:status-changed', { teamId: team._id, status: team.status });
     io.emit('rescue:assigned', {
       incidentId,
       rescueTeam: { _id: team._id, name: team.name, code: team.code, currentLocation: team.currentLocation },

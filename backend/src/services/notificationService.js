@@ -2,32 +2,90 @@ const { admin } = require('../config/firebase');
 const Notification = require('../models/Notification');
 const User = require('../models/User');
 const logger = require('../utils/logger');
+const https = require('https');
+
+// ─── Expo Push API Helper ────────────────────────────────────────────────────
 
 /**
- * Gửi push notification và lưu vào DB
- * @param {Object} opts
- * @param {string|string[]} opts.recipientIds - User ID hoặc mảng User IDs
- * @param {string} opts.type - Loại notification
- * @param {string} opts.title - Tiêu đề
- * @param {string} opts.body - Nội dung
- * @param {Object} [opts.data] - Extra data
- * @param {string} [opts.incidentId] - Incident liên quan
+ * Send notifications via Expo Push API (works for Expo Go / managed workflow)
+ * Tokens look like: ExponentPushToken[xxx]
+ */
+const sendExpoPush = (messages) => {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify(messages);
+    const options = {
+      hostname: 'exp.host',
+      path: '/--/api/v2/push/send',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Accept-Encoding': 'gzip, deflate',
+      },
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          const results = parsed.data || [];
+          let successCount = 0;
+          let failCount = 0;
+          results.forEach(r => {
+            if (r.status === 'ok') successCount++;
+            else failCount++;
+          });
+          logger.info(`[Expo Push] ${successCount}/${messages.length} gửi thành công, ${failCount} thất bại`);
+          resolve(parsed);
+        } catch (e) {
+          resolve({});
+        }
+      });
+    });
+
+    req.on('error', (err) => {
+      logger.warn(`[Expo Push] Lỗi HTTP: ${err.message}`);
+      resolve({}); // don't crash on push failure
+    });
+
+    req.write(body);
+    req.end();
+  });
+};
+
+// ─── Main sendNotification ───────────────────────────────────────────────────
+
+/**
+ * Send push notification + save to DB for given recipient IDs
+ * Supports both Expo Push Tokens (ExponentPushToken[...]) and FCM tokens
  */
 const sendNotification = async ({ recipientIds, type, title, body, data = {}, incidentId = null }) => {
   const ids = Array.isArray(recipientIds) ? recipientIds : [recipientIds];
 
   try {
-    // Lấy FCM tokens của các recipient
+    // Get all users with a push token
     const users = await User.find({
       _id: { $in: ids },
       isActive: true,
       fcmToken: { $ne: null },
     }).select('fcmToken');
 
-    const fcmTokens = users.map((u) => u.fcmToken).filter(Boolean);
+    const expoTokens = [];
+    const fcmTokens = [];
 
-    // Ghi vào DB (in-app notification) song song với FCM
-    const notifDocs = ids.map((recipientId) => ({
+    users.forEach(u => {
+      if (!u.fcmToken) return;
+      if (u.fcmToken.startsWith('ExponentPushToken')) {
+        expoTokens.push(u.fcmToken);
+      } else {
+        fcmTokens.push(u.fcmToken);
+      }
+    });
+
+    // Save in-app notification to DB
+    const notifDocs = ids.map(recipientId => ({
       recipient: recipientId,
       type,
       title,
@@ -37,7 +95,27 @@ const sendNotification = async ({ recipientIds, type, title, body, data = {}, in
     }));
     await Notification.insertMany(notifDocs, { ordered: false });
 
-    // Gửi FCM nếu có token và Firebase đã init
+    // Send via Expo Push API
+    if (expoTokens.length > 0) {
+      const messages = expoTokens.map(to => ({
+        to,
+        title,
+        body,
+        sound: 'default',
+        data: {
+          type,
+          incidentId: incidentId?.toString() || '',
+          ...Object.fromEntries(
+            Object.entries(data).map(([k, v]) => [k, String(v)])
+          ),
+        },
+        priority: type === 'SOS_ALERT' ? 'high' : 'default',
+        channelId: 'default',
+      }));
+      await sendExpoPush(messages);
+    }
+
+    // Send via Firebase FCM (native tokens)
     if (fcmTokens.length > 0 && admin?.messaging) {
       const message = {
         notification: { title, body },
@@ -50,11 +128,10 @@ const sendNotification = async ({ recipientIds, type, title, body, data = {}, in
         },
         tokens: fcmTokens,
       };
-
       const response = await admin.messaging().sendEachForMulticast(message);
-      logger.info(`FCM: ${response.successCount}/${fcmTokens.length} thành công`);
+      logger.info(`[FCM] ${response.successCount}/${fcmTokens.length} thành công`);
 
-      // Dọn FCM token hết hạn
+      // Clean expired FCM tokens
       const expiredTokens = [];
       response.responses.forEach((r, idx) => {
         if (!r.success && r.error?.code === 'messaging/registration-token-not-registered') {
@@ -68,19 +145,27 @@ const sendNotification = async ({ recipientIds, type, title, body, data = {}, in
         );
       }
     }
+
+    if (expoTokens.length === 0 && fcmTokens.length === 0) {
+      logger.debug(`[Push] Không có push token cho ${ids.length} người dùng (in-app notification đã lưu)`);
+    }
   } catch (err) {
-    logger.error(`Notification thất bại: ${err.message}`);
-    // Không throw — notification thất bại không nên làm crash business logic
+    logger.error(`[Push] Thất bại: ${err.message}`);
+    // Don't throw — notification failure must not crash business logic
   }
 };
 
+// ─── Convenience helpers ─────────────────────────────────────────────────────
+
 /**
- * Gửi thông báo SOS tới tất cả DISPATCHER và RESCUE trong zone
+ * Gửi cảnh báo SOS tới tất cả DISPATCHER và RESCUE
  */
-const sendSOSAlert = async (incident, zone = null) => {
-  const filter = { role: { $in: ['DISPATCHER', 'RESCUE'] }, isActive: true };
-  const recipients = await User.find(filter).select('_id');
-  const recipientIds = recipients.map((u) => u._id);
+const sendSOSAlert = async (incident) => {
+  const recipients = await User.find({
+    role: { $in: ['DISPATCHER', 'RESCUE'] },
+    isActive: true,
+  }).select('_id');
+  const recipientIds = recipients.map(u => u._id);
 
   await sendNotification({
     recipientIds,
@@ -93,11 +178,10 @@ const sendSOSAlert = async (incident, zone = null) => {
 };
 
 /**
- * Gửi thông báo khi incident được phân công cho Citizen
+ * Thông báo cho Citizen khi đội được phân công
  */
 const notifyCitizenAssigned = async (incident, teamName) => {
   if (!incident.reportedBy) return;
-
   await sendNotification({
     recipientIds: [incident.reportedBy],
     type: 'INCIDENT_ASSIGNED',
@@ -108,11 +192,10 @@ const notifyCitizenAssigned = async (incident, teamName) => {
 };
 
 /**
- * Gửi thông báo khi incident hoàn thành cho Citizen
+ * Thông báo cho Citizen khi hoàn thành
  */
 const notifyCitizenCompleted = async (incident) => {
   if (!incident.reportedBy) return;
-
   await sendNotification({
     recipientIds: [incident.reportedBy],
     type: 'INCIDENT_COMPLETED',
@@ -123,18 +206,32 @@ const notifyCitizenCompleted = async (incident) => {
 };
 
 /**
- * Gửi thông báo cho đội cứu hộ khi được phân công
+ * Thông báo cho đội cứu hộ khi được giao sự cố
  */
 const notifyRescueTeamAssigned = async (incident, team) => {
-  const memberIds = team.members?.map((m) => m.userId).filter(Boolean) || [];
+  const memberIds = team.members?.map(m => m.userId).filter(Boolean) || [];
   if (memberIds.length === 0) return;
-
   await sendNotification({
     recipientIds: memberIds,
     type: 'ASSIGNED_TO_YOU',
     title: '📍 Đội bạn được phân công sự cố mới',
-    body: `Sự cố ${incident.code} — ${incident.type} tại ${incident.location?.address || 'Vị trí GPS'}`,
-    data: { incidentCode: incident.code, severity: incident.severity },
+    body: `Sự cố ${incident.code} tại ${incident.location?.address || 'Vị trí GPS'}`,
+    data: { incidentCode: incident.code, severity: incident.severity || 'NORMAL' },
+    incidentId: incident._id,
+  });
+};
+
+/**
+ * Thông báo cho Dispatcher khi đội từ chối
+ */
+const notifyDispatcherRefused = async (incident, teamName) => {
+  const dispatchers = await User.find({ role: 'DISPATCHER', isActive: true }).select('_id');
+  if (dispatchers.length === 0) return;
+  await sendNotification({
+    recipientIds: dispatchers.map(d => d._id),
+    type: 'TEAM_REFUSED',
+    title: '⚠️ Đội từ chối nhiệm vụ',
+    body: `Đội ${teamName} đã từ chối sự cố ${incident.code}. Hệ thống đang tìm đội khác...`,
     incidentId: incident._id,
   });
 };
@@ -145,4 +242,5 @@ module.exports = {
   notifyCitizenAssigned,
   notifyCitizenCompleted,
   notifyRescueTeamAssigned,
+  notifyDispatcherRefused,
 };

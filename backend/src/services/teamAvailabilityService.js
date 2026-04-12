@@ -1,5 +1,6 @@
 const RescueTeam = require('../models/RescueTeam');
 const User = require('../models/User');
+const Incident = require('../models/Incident');
 
 const MIN_ONLINE_MEMBERS = 2;
 
@@ -19,7 +20,21 @@ async function recalculateTeamStatus(teamId) {
   const onlineMembersCount = await countOnlineMembers(teamId);
 
   if (team.activeIncident) {
-    team.status = 'BUSY';
+    const incident = await Incident.findById(team.activeIncident);
+    const isStillAssigned = incident && incident.assignedTeam?.toString() === team._id.toString();
+    const isActive = incident && !['COMPLETED', 'CANCELLED', 'HANDLED_BY_EXTERNAL'].includes(incident.status);
+
+    if (isStillAssigned && isActive) {
+      team.status = 'BUSY';
+    } else {
+      // Clear orphaned or finished incident link
+      team.activeIncident = null;
+      if (onlineMembersCount >= MIN_ONLINE_MEMBERS) {
+        team.status = 'AVAILABLE';
+      } else {
+        team.status = 'OFFLINE';
+      }
+    }
   } else if (onlineMembersCount >= MIN_ONLINE_MEMBERS) {
     team.status = 'AVAILABLE';
   } else {

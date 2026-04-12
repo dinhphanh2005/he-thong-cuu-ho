@@ -182,3 +182,41 @@ exports.updateFcmToken = async (req, res) => {
   await User.findByIdAndUpdate(req.user._id, { fcmToken });
   res.status(200).json({ success: true, message: 'Cập nhật FCM token thành công' });
 };
+
+/**
+ * @desc    Cập nhật cài đặt cá nhân
+ * @route   PATCH /api/v1/auth/settings
+ * @access  Private
+ */
+exports.updateSettings = async (req, res) => {
+  const { name, email, phone, notifications, mapConfig } = req.body;
+  
+  const user = await User.findById(req.user._id);
+  if (!user) return res.status(404).json({ success: false, message: 'Người dùng không tồn tại' });
+  
+  // Update profile info if provided
+  if (name) user.name = name;
+  if (email) user.email = email;
+  if (phone) user.phone = phone;
+
+  // Update settings
+  if (notifications) {
+    user.settings.notifications = { ...user.settings.notifications, ...notifications };
+  }
+  if (mapConfig) {
+    user.settings.mapConfig = { ...user.settings.mapConfig, ...mapConfig };
+  }
+  
+  await user.save({ validateBeforeSave: false });
+  
+  res.status(200).json({ 
+    success: true, 
+    message: 'Cập nhật cài đặt cá nhân thành công', 
+    data: {
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      settings: user.settings
+    }
+  });
+};

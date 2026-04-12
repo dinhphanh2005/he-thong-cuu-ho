@@ -62,9 +62,15 @@ function TeamDetailPanel({ team, onClose }) {
 
   const handleMessage = (event, member) => {
     event.stopPropagation();
-    navigate('/contacts', {
+    const incidentId = team.activeIncident?._id || team.activeIncident;
+    if (!incidentId) {
+      alert(`Đội ${team.name} hiện đang không xử lý sự cố nào nên không thể liên lạc qua kênh Incident.`);
+      return;
+    }
+    navigate('/dispatch/contacts', {
       state: {
         prefillMessage: `Liên hệ đội ${team.name} / ${member.userId?.name || 'thành viên cứu hộ'}`,
+        incidentId: incidentId.toString(),
       },
     });
   };
@@ -159,7 +165,7 @@ function TeamDetailPanel({ team, onClose }) {
                   </div>
                   <button
                     type="button"
-                    onClick={(event) => handleMessage(event, member)}
+                    onClick={(event) => handleMessage(event, member, team)}
                     className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 hover:bg-blue-100 cursor-pointer transition-colors"
                   >
                     <MessageSquare size={13} />

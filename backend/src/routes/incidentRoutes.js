@@ -7,8 +7,11 @@ const {
   getIncidentById,
   trackIncidentByCode,
   getMyIncidents,
+  getActiveCitizenIncident,
   getActiveRescueIncident,
+  getRescueHistory,
   updateIncidentStatus,
+  acceptIncident,
   refuseIncident,
   triggerSOS,
   cancelIncident,
@@ -80,6 +83,7 @@ router.use(protect, checkPasswordChange);
  *         description: Danh sách sự cố của tôi
  */
 router.get('/my', authorize('CITIZEN'), getMyIncidents);
+router.get('/my/active', authorize('CITIZEN'), getActiveCitizenIncident);
 
 /**
  * @swagger
@@ -94,6 +98,22 @@ router.get('/my', authorize('CITIZEN'), getMyIncidents);
  *         description: Sự cố đang xử lý (null nếu không có)
  */
 router.get('/rescue/active', authorize('RESCUE'), getActiveRescueIncident);
+
+/**
+ * @swagger
+ * /api/v1/incidents/rescue/history:
+ *   get:
+ *     summary: Lịch sử sự cố của đội Rescue đang đăng nhập
+ *     tags: [Incidents]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Lịch sử sự cố
+ */
+router.get('/rescue/history', authorize('RESCUE'), getRescueHistory);
+
+router.patch('/:id/accept', authorize('RESCUE'), acceptIncident);
 router.patch('/:id/refuse', authorize('RESCUE'), refuseIncident);
 
 /**

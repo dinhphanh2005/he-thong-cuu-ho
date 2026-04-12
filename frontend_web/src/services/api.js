@@ -105,6 +105,7 @@ export const authAPI = {
   getMe: () => api.get('/auth/me'),
   changePassword: (newPassword) => api.post('/auth/change-password', { newPassword }),
   logout: () => api.post('/auth/logout'),
+  updateSettings: (settings) => api.patch('/auth/settings', settings),
 };
 
 export const incidentAPI = {
@@ -123,6 +124,24 @@ export const rescueAPI = {
 
 export const reportAPI = {
   getDashboard: () => api.get('/admin/dashboard'),
+};
+
+export const adminAPI = {
+  getUsers: (params) => api.get('/admin/users', { params }),
+  createDispatcher: (data) => api.post('/admin/dispatchers', data),
+  toggleActive: (id) => api.patch(`/admin/users/${id}/toggle-active`),
+  deleteRescueTeam: (id) => api.delete(`/admin/rescue-teams/${id}`),
+  updateRescueTeam: (id, payload) => api.put(`/admin/rescue-teams/${id}`, payload),
+  toggleSuspendTeam: (id) => api.patch(`/admin/rescue-teams/${id}/toggle-suspend`),
+  createRescueTeam: (data) => api.post('/admin/rescue-teams', data),
+  createRescueMember: (data) => api.post('/admin/rescue-members', data),
+  getConfig: () => api.get('/admin/config'),
+  updateConfig: (data) => api.patch('/admin/config', data),
+};
+
+export const chatAPI = {
+  getMessages: (incidentId) => api.get(`/chat/${incidentId}/messages`),
+  sendMessage: (incidentId, text) => api.post(`/chat/${incidentId}/messages`, { text }),
 };
 
 export default api;

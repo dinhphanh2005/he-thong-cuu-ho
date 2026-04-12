@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Download, 
   Calendar, 
@@ -11,33 +11,119 @@ import {
   MapPin,
   AlertCircle
 } from 'lucide-react';
+import ExcelJS from 'exceljs';
+import { useApp } from '../../context/AppContext';
 
-const INCIDENT_TYPES = [
-  { name: 'Hỏng xe / Chết máy', count: 50, percentage: 85, color: 'bg-blue-500' },
-  { name: 'Tai nạn giao thông', count: 38, percentage: 65, color: 'bg-blue-500' },
-  { name: 'Hết nhiên liệu', count: 20, percentage: 35, color: 'bg-blue-500' },
-  { name: 'Ngập nước', count: 11, percentage: 20, color: 'bg-blue-500' },
-];
-
-const RECENT_CALLS = [
-  { id: '0001', time: '29/01/2026', area: 'Cầu Giấy', type: 'Tai nạn giao thông', team: '0001', status: 'COMPLETED' },
-  { id: '0002', time: '29/01/2026', area: 'Đống Đa', type: 'Hỏng xe', team: '0003', status: 'COMPLETED' },
-  { id: '0003', time: '29/01/2026', area: 'Thanh Xuân', type: 'Hết nhiên liệu', team: '0002', status: 'COMPLETED' },
-];
+function downloadWorkbook(workbook, filename) {
+  workbook.xlsx.writeBuffer().then(buffer => {
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    link.click();
+  });
+}
 
 export default function Reports() {
+  const { incidents } = useApp();
+  const [filterType, setFilterType] = useState('ALL');
+
+  // Computed properties mapping from live context
+  const filtered = useMemo(() => {
+    let list = incidents;
+    if (filterType !== 'ALL') {
+      list = list.filter(i => i.type === filterType);
+    }
+    return list;
+  }, [incidents, filterType]);
+
+  const typeDistribution = useMemo(() => {
+    const counts = { ACCIDENT: 0, BREAKDOWN: 0, FLOOD: 0, FIRE: 0, OTHER: 0 };
+    filtered.forEach(i => {
+      counts[i.type] = (counts[i.type] || 0) + 1;
+    });
+    const total = Math.max(filtered.length, 1);
+    
+    return [
+      { name: 'Tai nạn giao thông', count: counts.ACCIDENT, percentage: Math.round(counts.ACCIDENT/total*100), color: 'bg-red-500' },
+      { name: 'Hỏng xe / Chết máy', count: counts.BREAKDOWN, percentage: Math.round(counts.BREAKDOWN/total*100), color: 'bg-blue-500' },
+      { name: 'Ngập nước', count: counts.FLOOD, percentage: Math.round(counts.FLOOD/total*100), color: 'bg-cyan-500' },
+      { name: 'Cháy nổ', count: counts.FIRE, percentage: Math.round(counts.FIRE/total*100), color: 'bg-orange-500' },
+      { name: 'Khác', count: counts.OTHER, percentage: Math.round(counts.OTHER/total*100), color: 'bg-gray-500' },
+    ].sort((a,b) => b.count - a.count);
+  }, [filtered]);
+
+  const stats = useMemo(() => {
+    const total = filtered.length;
+    const completed = filtered.filter(i => i.status === 'COMPLETED').length;
+    const rate = total > 0 ? Math.round((completed / total) * 100) : 0;
+    
+    // Find best team
+    const teamCounts = {};
+    filtered.forEach(i => {
+      if (i.status === 'COMPLETED' && i.assignedTeam) {
+        teamCounts[i.assignedTeam.name] = (teamCounts[i.assignedTeam.name] || 0) + 1;
+      }
+    });
+    
+    let bestTeam = 'Chưa có dữ liệu';
+    let max = 0;
+    for (const [t, c] of Object.entries(teamCounts)) {
+      if (c > max) { max = c; bestTeam = t; }
+    }
+
+    return { total, rate, bestTeam };
+  }, [filtered]);
+
+  const handleExportFullReport = async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Bao Cao Chi Tiet');
+    
+    ws.mergeCells('A1', 'F1');
+    const title = ws.getCell('A1');
+    title.value = 'BÁO CÁO THỐNG KÊ CHI TIẾT SỰ CỐ';
+    title.font = { name: 'Arial', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+    title.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1565C0' } };
+    title.alignment = { vertical: 'middle', horizontal: 'center' };
+
+    ws.addRow([]);
+    ws.addRow(['Tổng số ca:', stats.total, 'Tỷ lệ hoàn thành:', `${stats.rate}%`, 'Đội xuất sắc:', stats.bestTeam]);
+    ws.addRow([]);
+
+    const header = ws.addRow(['Mã ca', 'Thời gian báo', 'Khu vực', 'Loại sự cố', 'Đội tiếp nhận', 'Trạng thái']);
+    header.eachCell(c => {
+      c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF42A5F5' } };
+    });
+
+    const lbl = { ACCIDENT: 'Tai nạn', BREAKDOWN: 'Hỏng xe', FLOOD: 'Ngập nước', FIRE: 'Cháy nổ', OTHER: 'Khác' };
+    filtered.forEach(call => {
+       ws.addRow([
+         call.code || 'N/A',
+         new Date(call.createdAt).toLocaleString('vi-VN'),
+         call.location?.address || 'N/A',
+         lbl[call.type] || 'Khác',
+         call.assignedTeam?.name || 'Trống',
+         call.status
+       ]);
+    });
+
+    ws.columns = [{ width: 15 }, { width: 22 }, { width: 45 }, { width: 15 }, { width: 30 }, { width: 15 }];
+    downloadWorkbook(wb, `bao_cao_chi_tiet_${new Date().getTime()}.xlsx`);
+  };
+
   return (
     <div className="h-full space-y-8 pt-2 animate-fade-in overflow-y-auto pb-8 pr-2">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-black text-gray-900">Báo cáo chi tiết</h2>
-          <p className="text-sm text-gray-500 font-medium font-sans italic opacity-70">Báo cáo hệ thống</p>
+          <p className="text-sm text-gray-500 font-medium font-sans italic opacity-70">Thống kê từ Dữ liệu Live</p>
         </div>
         <div className="flex items-center gap-4">
-           <button className="flex items-center gap-2 px-6 py-3 bg-white border border-gray-200 rounded-2xl text-sm font-black text-gray-700 hover:bg-gray-50 transition-all shadow-sm">
+           <button onClick={handleExportFullReport} className="flex items-center gap-2 px-6 py-3 bg-white border border-gray-200 rounded-2xl text-sm font-black text-gray-700 hover:bg-gray-50 transition-all shadow-sm">
              <Download size={18} />
-             Xuất báo cáo (.csv)
+             Xuất báo cáo tổng (.xlsx)
            </button>
            <div className="w-10 h-10 rounded-full border border-gray-200 overflow-hidden shrink-0 shadow-sm">
               <img src="https://ui-avatars.com/api/?name=AD&background=1f2937&color=fff" alt="User" />
@@ -52,10 +138,8 @@ export default function Reports() {
                <div className="flex items-center gap-2 text-xs font-bold text-gray-400">
                   <Calendar size={14} /> Khoảng thời gian
                </div>
-               <div className="flex items-center gap-2 bg-gray-50 px-4 py-2 rounded-xl border border-gray-100 text-sm font-black text-gray-700">
-                  <span>01/03/2026</span>
-                  <span className="text-gray-300 font-normal">-</span>
-                  <span>31/03/2026</span>
+               <div className="flex items-center gap-2 bg-gray-50 px-4 py-2 rounded-xl border border-gray-100 text-sm font-black text-gray-700 opacity-50 cursor-not-allowed">
+                  <span>Toàn thời gian</span>
                </div>
             </div>
             <div className="space-y-2">
@@ -64,16 +148,22 @@ export default function Reports() {
                </div>
                <select className="w-full bg-gray-50 px-4 py-2 rounded-xl border border-gray-100 text-sm font-black text-gray-700 outline-none appearance-none cursor-pointer">
                   <option>Toàn thành phố</option>
-                  <option>Cầu Giấy</option>
                </select>
             </div>
             <div className="space-y-2">
                <div className="flex items-center gap-2 text-xs font-bold text-gray-400">
                   <AlertCircle size={14} /> Loại sự cố
                </div>
-               <select className="w-full bg-gray-50 px-4 py-2 rounded-xl border border-gray-100 text-sm font-black text-gray-700 outline-none appearance-none cursor-pointer">
-                  <option>Tất cả</option>
-                  <option>Tai nạn</option>
+               <select 
+                 value={filterType} 
+                 onChange={e => setFilterType(e.target.value)}
+                 className="w-full bg-gray-50 px-4 py-2 rounded-xl border border-gray-100 text-sm font-black text-gray-700 outline-none appearance-none cursor-pointer"
+               >
+                  <option value="ALL">Tất cả</option>
+                  <option value="ACCIDENT">Tai nạn</option>
+                  <option value="BREAKDOWN">Hỏng xe</option>
+                  <option value="FLOOD">Ngập nước</option>
+                  <option value="FIRE">Cháy nổ</option>
                </select>
             </div>
          </div>
@@ -90,11 +180,11 @@ export default function Reports() {
                <h4 className="text-lg font-black text-gray-900">Phân bổ loại sự cố</h4>
             </div>
             <div className="space-y-8 flex-1">
-               {INCIDENT_TYPES.map(type => (
+               {typeDistribution.map(type => (
                  <div key={type.name} className="space-y-3">
                     <div className="flex items-center justify-between">
                        <span className="text-sm font-black text-gray-800">{type.name}</span>
-                       <span className="text-sm font-bold text-gray-400">{type.count} vụ</span>
+                       <span className="text-sm font-bold text-gray-400">{type.count} vụ ({type.percentage}%)</span>
                     </div>
                     <div className="h-2 w-full bg-gray-50 rounded-full overflow-hidden">
                        <div 
@@ -113,17 +203,17 @@ export default function Reports() {
             
             <div className="space-y-1">
                <p className="text-sm font-bold text-gray-400">Tổng số ca ghi nhận</p>
-               <h3 className="text-4xl font-black text-gray-900">112</h3>
+               <h3 className="text-4xl font-black text-gray-900">{stats.total}</h3>
             </div>
 
             <div className="space-y-1">
                <p className="text-sm font-bold text-gray-400">Tỷ lệ hoàn thành</p>
-               <h3 className="text-4xl font-black text-gray-900">90%</h3>
+               <h3 className="text-4xl font-black text-gray-900">{stats.rate}%</h3>
             </div>
 
             <div className="space-y-1">
                <p className="text-sm font-bold text-gray-400">Đội xuất sắc nhất</p>
-               <h3 className="text-2xl font-black text-blue-600">Đội cứu hộ 1</h3>
+               <h3 className="text-2xl font-black text-blue-600 truncate">{stats.bestTeam}</h3>
             </div>
          </div>
       </div>
@@ -132,9 +222,9 @@ export default function Reports() {
       <div className="bg-white rounded-[40px] border border-gray-100 shadow-sm flex flex-col overflow-hidden">
          <div className="p-8 border-b border-gray-50 flex items-center justify-between">
             <h4 className="text-lg font-black text-gray-900">Chi tiết các ca cứu hộ</h4>
-            <button className="flex items-center gap-2 text-xs font-black text-blue-600 hover:text-blue-700 transition-all">
+            <button onClick={handleExportFullReport} className="flex items-center gap-2 text-xs font-black text-blue-600 hover:text-blue-700 transition-all">
                <Download size={14} />
-               Xuất bảng dữ liệu này (.csv)
+               Xuất bảng dữ liệu này (.xlsx)
             </button>
          </div>
 
@@ -151,20 +241,25 @@ export default function Reports() {
                   </tr>
                </thead>
                <tbody className="divide-y divide-gray-50">
-                  {RECENT_CALLS.map(call => (
-                    <tr key={call.id} className="group hover:bg-gray-50/30 transition-colors">
-                       <td className="px-8 py-6 text-sm font-black text-gray-900">{call.id}</td>
-                       <td className="px-8 py-6 text-sm font-bold text-gray-700 italic">{call.time}</td>
-                       <td className="px-8 py-6 text-sm font-black text-gray-900">{call.area}</td>
-                       <td className="px-8 py-6 text-sm font-bold text-gray-700">{call.type}</td>
-                       <td className="px-8 py-6 text-sm font-bold text-gray-900 italic">{call.team}</td>
+                  {filtered.length === 0 && (
+                     <tr><td colSpan="6" className="text-center py-8 text-gray-400 font-bold">Không có yêu cầu cứu hộ</td></tr>
+                  )}
+                  {filtered.map(call => {
+                    const lbl = { ACCIDENT: 'Tai nạn', BREAKDOWN: 'Hỏng xe', FLOOD: 'Ngập nước', FIRE: 'Cháy nổ', OTHER: 'Khác' };
+                    return (
+                    <tr key={call._id} className="group hover:bg-gray-50/30 transition-colors">
+                       <td className="px-8 py-6 text-sm font-black text-gray-900">{call.code || '...'}</td>
+                       <td className="px-8 py-6 text-sm font-bold text-gray-700 italic">{new Date(call.createdAt).toLocaleString('vi-VN')}</td>
+                       <td className="px-8 py-6 text-sm font-black text-gray-900 truncate max-w-[200px]" title={call.location?.address}>{call.location?.address?.split(',')[0] || '...'}</td>
+                       <td className="px-8 py-6 text-sm font-bold text-gray-700">{lbl[call.type] || 'Khác'}</td>
+                       <td className="px-8 py-6 text-sm font-bold text-blue-600 italic">{call.assignedTeam?.name || 'Chưa gán'}</td>
                        <td className="px-8 py-6">
-                          <span className="px-3 py-1.5 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-lg text-[10px] font-black">
-                             Hoàn thành
+                          <span className={`px-3 py-1.5 ${call.status === 'COMPLETED' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-gray-100 text-gray-600'} border border-transparent rounded-lg text-[10px] font-black`}>
+                             {call.status}
                           </span>
                        </td>
                     </tr>
-                  ))}
+                  )})}
                </tbody>
             </table>
          </div>

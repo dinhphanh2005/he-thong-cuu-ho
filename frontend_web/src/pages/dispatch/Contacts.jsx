@@ -1,156 +1,154 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Paperclip, Send, MessageSquare, CheckCheck } from 'lucide-react';
+import { Search, Paperclip, Send, MessageSquare, CheckCheck, Loader2 } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
+import { useApp } from '../../context/AppContext';
+import { chatAPI } from '../../services/api';
+import { connectSocket } from '../../services/socket';
 
-const INITIAL_CONTACTS = [
-  {
-    id: 1,
-    name: 'Nguyễn Văn A',
-    team: 'Đội cứu hộ 1',
-    vehicle: '29H-123.45',
-    status: 'Đang di chuyển',
-    online: true,
-    unread: 2,
-    messages: [
-      { id: '1-1', sender: 'them', text: 'Bên em đã nhận nhiệm vụ, đang rời bến.', time: '08:57' },
-      { id: '1-2', sender: 'me', text: 'Xác nhận ETA giúp tôi.', time: '08:59' },
-      { id: '1-3', sender: 'them', text: 'Khoảng 12 phút, hiện đang qua cầu vượt Mai Dịch.', time: '09:01' },
-      { id: '1-4', sender: 'them', text: 'Khu vực hiện trường khá đông, cần giữ luồng liên lạc mở.', time: '09:03' },
-    ],
-  },
-  {
-    id: 2,
-    name: 'Trần Minh B',
-    team: 'Đội cứu hộ 2',
-    vehicle: '51A-782.16',
-    status: 'Sẵn sàng',
-    online: true,
-    unread: 0,
-    messages: [
-      { id: '2-1', sender: 'me', text: 'Đội 2 standby tại khu vực Cầu Giấy nhé.', time: '08:40' },
-      { id: '2-2', sender: 'them', text: 'Đã rõ. Đủ quân số, xe và dụng cụ đầy đủ.', time: '08:42' },
-    ],
-  },
-  {
-    id: 3,
-    name: 'Lê Quốc C',
-    team: 'Đội cứu hộ 3',
-    vehicle: '30G-456.88',
-    status: 'Ngoại tuyến',
-    online: false,
-    unread: 0,
-    messages: [
-      { id: '3-1', sender: 'them', text: 'Máy bộ đàm đang kiểm tra lại pin, sẽ online sau 10 phút.', time: '07:55' },
-    ],
-  },
-];
-
-function getAvatar(name) {
-  return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=E8EEF9&color=17324D`;
-}
-
-function getLastMessage(contact) {
-  return contact.messages[contact.messages.length - 1];
-}
+const TEAM_TYPE_LABELS = {
+  AMBULANCE: 'Cứu thương',
+  TOW_TRUCK: 'Xe kéo',
+  FIRE: 'Cứu hỏa',
+  POLICE: 'Cảnh sát',
+  MULTI: 'Đa năng',
+};
 
 export default function Contacts() {
   const { state } = useLocation();
-  const [contacts, setContacts] = useState(INITIAL_CONTACTS);
-  const [activeContact, setActiveContact] = useState(INITIAL_CONTACTS[0].id);
-  const [message, setMessage] = useState('');
+  const { incidents, user } = useApp();
   const [search, setSearch] = useState('');
+  const [activeIncidentId, setActiveIncidentId] = useState(null);
+  const [message, setMessage] = useState('');
+  const [messages, setMessages] = useState([]);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  
   const chatBottomRef = useRef(null);
+
+  // Filter Active Incidents
+  const activeIncidents = useMemo(() => {
+    return incidents.filter(i => ['PENDING', 'ASSIGNED', 'ARRIVED', 'PROCESSING'].includes(i.status) && i.assignedTeam);
+  }, [incidents]);
 
   const visibleContacts = useMemo(() => {
     const keyword = search.trim().toLowerCase();
-    if (!keyword) return contacts;
-    return contacts.filter((contact) =>
-      [contact.name, contact.team, contact.vehicle, contact.status].some((field) =>
-        field.toLowerCase().includes(keyword)
+    if (!keyword) return activeIncidents;
+    return activeIncidents.filter((inc) =>
+      [inc.assignedTeam?.name, inc.code, inc.assignedTeam?.vehicle, inc.type].some((field) =>
+        field && field.toLowerCase().includes(keyword)
       )
     );
-  }, [contacts, search]);
+  }, [activeIncidents, search]);
 
-  const activeConversation = visibleContacts.find((contact) => contact.id === activeContact)
-    || contacts.find((contact) => contact.id === activeContact)
-    || contacts[0];
+  const activeIncident = activeIncidents.find(i => i._id === activeIncidentId) || visibleContacts[0];
+
+  // Initial selection
+  useEffect(() => {
+    if (state?.incidentId) {
+      setActiveIncidentId(state.incidentId);
+      if (state.prefillMessage) {
+        setMessage(state.prefillMessage);
+      }
+    } else if (activeIncidents.length > 0 && !activeIncidentId) {
+      setActiveIncidentId(activeIncidents[0]._id);
+    }
+  }, [state, activeIncidents.length]);
+
+  // Fetch messages
+  useEffect(() => {
+    if (!activeIncident?._id) return;
+    
+    let isMounted = true;
+    const fetchMsgs = async () => {
+      setLoadingMessages(true);
+      try {
+        const { data } = await chatAPI.getMessages(activeIncident._id);
+        if (isMounted) setMessages(data.data || []);
+      } catch (err) {
+        console.error('Lỗi tải tin nhắn:', err);
+      } finally {
+        if (isMounted) setLoadingMessages(false);
+      }
+    };
+    fetchMsgs();
+    return () => { isMounted = false; };
+  }, [activeIncident?._id]);
+
+  // Socket setup
+  useEffect(() => {
+    if (!activeIncident?._id) return;
+    
+    const socket = connectSocket();
+    socket.emit('chat:join', activeIncident._id);
+    
+    const handleNewMessage = (msg) => {
+      if (msg.incidentId === activeIncident._id) {
+        setMessages(prev => {
+          if (prev.find(m => m._id === msg._id)) return prev;
+          return [...prev, msg];
+        });
+      }
+    };
+    
+    socket.on('chat:message', handleNewMessage);
+    
+    return () => {
+      socket.emit('chat:leave', activeIncident._id);
+      socket.off('chat:message', handleNewMessage);
+    };
+  }, [activeIncident?._id]);
 
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [activeConversation?.messages.length]);
+  }, [messages.length]);
 
-  useEffect(() => {
-    const prefillMessage = state?.prefillMessage?.trim();
-    if (!prefillMessage) return;
-
-    setActiveContact(INITIAL_CONTACTS[0].id);
-    setMessage(prefillMessage);
-  }, [state]);
-
-  const handleSelectContact = (contactId) => {
-    setActiveContact(contactId);
-    setContacts((prev) =>
-      prev.map((contact) =>
-        contact.id === contactId ? { ...contact, unread: 0 } : contact
-      )
-    );
+  const handleSelectContact = (id) => {
+    setActiveIncidentId(id);
   };
 
-  const handleSend = (event) => {
+  const handleSend = async (event) => {
     event.preventDefault();
     const text = message.trim();
-    if (!text || !activeConversation) return;
+    if (!text || !activeIncident?._id) return;
 
-    const now = new Date();
-    const time = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-
-    setContacts((prev) =>
-      prev.map((contact) =>
-        contact.id === activeConversation.id
-          ? {
-              ...contact,
-              messages: [
-                ...contact.messages,
-                { id: `${contact.id}-${Date.now()}`, sender: 'me', text, time },
-              ],
-              status: contact.online ? 'Đang phản hồi' : contact.status,
-            }
-          : contact
-      )
-    );
-    setMessage('');
-
-    window.setTimeout(() => {
-      setContacts((prev) =>
-        prev.map((contact) =>
-          contact.id === activeConversation.id
-            ? {
-                ...contact,
-                messages: [
-                  ...contact.messages,
-                  {
-                    id: `${contact.id}-${Date.now()}-reply`,
-                    sender: 'them',
-                    text: text.toLowerCase().includes('eta')
-                      ? 'ETA hiện tại khoảng 8 phút. Tôi sẽ cập nhật khi vào gần hiện trường.'
-                      : text.toLowerCase().includes('sự cố')
-                        ? 'Đã nhận nội dung. Tôi đang trao đổi trực tiếp với lái xe và sẽ phản hồi thêm.'
-                        : 'Đã nhận. Tôi sẽ kiểm tra thực địa và nhắn lại ngay khi có thay đổi.',
-                    time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
-                  },
-                ],
-              }
-            : contact
-        )
-      );
-    }, 1200);
+    setMessage(''); // Optimistic clear
+    
+    try {
+      // Backend automatically broadcasts it via socket
+      await chatAPI.sendMessage(activeIncident._id, text);
+    } catch (err) {
+      console.error('Lỗi gửi tin nhắn', err);
+    }
   };
 
-  if (!activeConversation) return null;
+  function getAvatar(name) {
+    if (!name) return `https://ui-avatars.com/api/?name=U&background=E8EEF9&color=17324D`;
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=E8EEF9&color=17324D`;
+  }
+
+  if (activeIncidents.length === 0) {
+    return (
+      <div className="max-w-6xl mx-auto h-[calc(100vh-8rem)] flex items-center justify-center">
+        <div className="text-gray-500 text-center">
+          <MessageSquare size={48} className="mx-auto mb-4 opacity-50" />
+          <h3 className="text-lg font-bold">Không có cuộc hội thoại nào</h3>
+          <p className="text-sm">Chỉ có thể trò chuyện với các đội cứu hộ đang trong quá trình thực hiện sự cố.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!activeIncident) return null;
+
+  const getStatusLabel = (status) => {
+    if (status === 'ASSIGNED' || status === 'PENDING') return 'Đang di chuyển';
+    if (status === 'PROCESSING' || status === 'ARRIVED') return 'Đang xử lý';
+    return status;
+  };
 
   return (
     <div className="max-w-6xl mx-auto h-[calc(100vh-8rem)]">
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 h-full flex overflow-hidden">
+        {/* Left Sidebar */}
         <div className="w-[320px] border-r border-gray-100 flex flex-col bg-white shrink-0">
           <div className="p-4 border-b border-gray-50">
             <div className="relative">
@@ -159,46 +157,39 @@ export default function Contacts() {
                 type="text"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Tìm cứu hộ, đội xe, biển số..."
+                placeholder="Tìm mã vụ việc, đội xe..."
                 className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
               />
             </div>
           </div>
 
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
-            {visibleContacts.map((contact) => {
-              const lastMessage = getLastMessage(contact);
+            {visibleContacts.map((inc) => {
+              const isActive = activeIncident._id === inc._id;
+              const teamName = inc.assignedTeam?.name || 'Đội chưa xác định';
               return (
                 <button
-                  key={contact.id}
+                  key={inc._id}
                   type="button"
-                  onClick={() => handleSelectContact(contact.id)}
+                  onClick={() => handleSelectContact(inc._id)}
                   className={`w-full p-3 rounded-2xl text-left flex items-center gap-3 cursor-pointer transition-all ${
-                    activeConversation.id === contact.id
+                    isActive
                       ? 'bg-[#F0F7FF] border border-blue-100 shadow-sm'
                       : 'hover:bg-gray-50 border border-transparent'
                   }`}
                 >
                   <div className="w-11 h-11 rounded-full bg-gray-200 shrink-0 overflow-hidden relative">
-                    <img src={getAvatar(contact.name)} alt={contact.name} className="w-full h-full object-cover" />
-                    <div className={`absolute bottom-0 right-0 w-3 h-3 border-2 border-white rounded-full ${contact.online ? 'bg-green-500' : 'bg-gray-300'}`} />
+                    <img src={getAvatar(teamName)} alt={teamName} className="w-full h-full object-cover" />
+                    <div className="absolute bottom-0 right-0 w-3 h-3 border-2 border-white rounded-full bg-green-500" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2 mb-1">
-                      <h5 className={`text-sm font-bold truncate ${activeConversation.id === contact.id ? 'text-blue-900' : 'text-gray-900'}`}>
-                        {contact.name}
+                      <h5 className={`text-sm font-bold truncate ${isActive ? 'text-blue-900' : 'text-gray-900'}`}>
+                        {teamName}
                       </h5>
-                      <span className="text-[10px] font-medium text-gray-400 shrink-0">{lastMessage?.time}</span>
                     </div>
-                    <p className="text-[11px] text-gray-500 truncate">{contact.team} • {contact.vehicle}</p>
-                    <div className="flex items-center justify-between gap-3 mt-1.5">
-                      <p className="text-xs text-gray-600 truncate">{lastMessage?.text}</p>
-                      {contact.unread > 0 && (
-                        <span className="min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold inline-flex items-center justify-center">
-                          {contact.unread}
-                        </span>
-                      )}
-                    </div>
+                    <p className="text-[11px] text-gray-500 truncate font-semibold text-blue-600 mb-0.5">Sự cố {inc.code}</p>
+                    <p className="text-[11px] text-gray-400 truncate">{TEAM_TYPE_LABELS[inc.type] || inc.type}</p>
                   </div>
                 </button>
               );
@@ -206,59 +197,65 @@ export default function Contacts() {
           </div>
         </div>
 
+        {/* Chat Panel */}
         <div className="flex-1 flex flex-col bg-[#F5F7FB] relative">
           <div className="h-20 border-b border-gray-100 bg-white flex justify-between items-center px-6 shrink-0 z-10 shadow-sm">
             <div>
               <div className="flex items-center gap-2">
-                <h4 className="font-bold text-gray-900">{activeConversation.name} ({activeConversation.vehicle})</h4>
-                <span className={`text-[10px] px-2 py-1 rounded-full font-bold ${activeConversation.online ? 'bg-[#E8F8F5] text-[#149B5F]' : 'bg-gray-100 text-gray-500'}`}>
-                  {activeConversation.status}
+                <h4 className="font-bold text-gray-900">{activeIncident.assignedTeam?.name || 'Chưa gán'} (Sự cố {activeIncident.code})</h4>
+                <span className="text-[10px] px-2 py-1 rounded-full font-bold bg-[#E8F8F5] text-[#149B5F]">
+                  {getStatusLabel(activeIncident.status)}
                 </span>
               </div>
-              <p className="text-xs text-gray-500 mt-1">{activeConversation.team} • Luồng trao đổi điều phối trực tiếp</p>
-            </div>
-            <div className="rounded-2xl border border-blue-100 bg-blue-50 px-3 py-2">
-              <p className="text-[11px] font-bold text-blue-700">Tin nhắn trực tiếp</p>
-              <p className="text-[10px] text-blue-500">Ưu tiên cập nhật ETA, hiện trường, nhu cầu hỗ trợ</p>
+              <p className="text-xs text-gray-500 mt-1">{TEAM_TYPE_LABELS[activeIncident.type] || activeIncident.type} • Luồng trao đổi điều phối chung</p>
             </div>
           </div>
 
           <div className="flex-1 overflow-y-auto p-6 space-y-5">
-            <div className="flex items-center justify-center">
-              <div className="rounded-full bg-white px-3 py-1 text-[11px] font-semibold text-gray-400 border border-gray-100 shadow-sm">
-                Hôm nay
+            {loadingMessages && (
+              <div className="flex justify-center my-4">
+                <Loader2 className="animate-spin text-gray-400" size={24} />
               </div>
-            </div>
+            )}
+            
+            {!loadingMessages && messages.length === 0 && (
+               <div className="text-center text-sm text-gray-400 my-4">Chưa có tin nhắn trong luồng này. Bắt đầu trao đổi!</div>
+            )}
 
-            {activeConversation.messages.map((entry) => (
-              <div
-                key={entry.id}
-                className={`flex gap-3 max-w-[82%] ${entry.sender === 'me' ? 'ml-auto flex-row-reverse' : ''}`}
-              >
-                <div className="w-9 h-9 rounded-full bg-gray-200 shrink-0 overflow-hidden">
-                  <img
-                    src={entry.sender === 'me' ? getAvatar('Điều phối') : getAvatar(activeConversation.name)}
-                    alt={entry.sender === 'me' ? 'Điều phối' : activeConversation.name}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-                <div className={`flex flex-col ${entry.sender === 'me' ? 'items-end' : ''}`}>
-                  <div
-                    className={`p-3.5 rounded-2xl text-sm leading-relaxed mb-1 inline-block shadow-sm ${
-                      entry.sender === 'me'
-                        ? 'bg-[#0F62FE] text-white rounded-tr-sm'
-                        : 'bg-white border border-gray-100 text-gray-800 rounded-tl-sm'
-                    }`}
-                  >
-                    {entry.text}
+            {messages.map((entry) => {
+              const isMe = entry.sender?._id === user?._id || entry.sender?.role === 'DISPATCHER' || entry.sender?.role === 'ADMIN'; 
+              const time = new Date(entry.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+              
+              return (
+                <div
+                  key={entry._id}
+                  className={`flex gap-3 max-w-[82%] ${isMe ? 'ml-auto flex-row-reverse' : ''}`}
+                >
+                  <div className="w-9 h-9 rounded-full bg-gray-200 shrink-0 overflow-hidden">
+                    <img
+                      src={isMe ? getAvatar('Điều phối') : getAvatar(entry.sender?.name || 'User')}
+                      alt="Avatar"
+                      className="w-full h-full object-cover"
+                    />
                   </div>
-                  <div className={`text-[10px] font-bold text-gray-400 flex items-center gap-1 ${entry.sender === 'me' ? 'mr-1' : 'ml-1'}`}>
-                    {entry.time}
-                    {entry.sender === 'me' && <CheckCheck size={12} className="text-blue-400" />}
+                  <div className={`flex flex-col ${isMe ? 'items-end' : ''}`}>
+                    <div
+                      className={`p-3.5 rounded-2xl text-sm leading-relaxed mb-1 inline-block shadow-sm ${
+                        isMe
+                          ? 'bg-[#0F62FE] text-white rounded-tr-sm'
+                          : 'bg-white border border-gray-100 text-gray-800 rounded-tl-sm'
+                      }`}
+                    >
+                      {entry.text}
+                    </div>
+                    <div className={`text-[10px] font-bold text-gray-400 flex items-center gap-1 ${isMe ? 'mr-1' : 'ml-1'}`}>
+                      {entry.sender?.name} • {time}
+                      {isMe && <CheckCheck size={12} className="text-blue-400" />}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             <div ref={chatBottomRef} />
           </div>
 
@@ -284,7 +281,7 @@ export default function Contacts() {
                     ? 'bg-[#00A8FF] text-white hover:bg-blue-600 cursor-pointer'
                     : 'bg-gray-100 text-gray-300 cursor-not-allowed'
                 }`}
-                disabled={!message.trim()}
+                disabled={!message.trim() || loadingMessages}
               >
                 {message.trim() ? <Send size={18} className="-ml-0.5 mt-0.5" /> : <MessageSquare size={18} />}
               </button>

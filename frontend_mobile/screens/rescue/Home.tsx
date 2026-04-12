@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSelector } from 'react-redux';
 import * as Location from 'expo-location';
-import MapView, { Marker } from 'react-native-maps';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 import { getSocket, updateRescueLocation } from '../../src/services/socket';
 import { COLORS, INCIDENT_TYPES } from '../../src/constants';
 import { RootState } from '../../src/store/store';
@@ -21,14 +21,21 @@ import { incidentAPI, rescueAPI } from '../../src/services/api';
 
 const { width } = Dimensions.get('window');
 
-type IncidentStage = 'IDLE' | 'NEW_ALERT' | 'ACCEPTED' | 'ARRIVED' | 'PROCESSING';
+type IncidentStage = 'IDLE' | 'OFFERING' | 'ACCEPTED' | 'ARRIVED' | 'PROCESSING';
 
 function mapIncidentToStage(incident: any): IncidentStage {
   if (!incident) return 'IDLE';
-  if (incident.status === 'ASSIGNED') return 'NEW_ALERT';
-  if (incident.status === 'IN_PROGRESS') return 'ACCEPTED';
+  if (incident.status === 'OFFERING') return 'OFFERING';
+  if (incident.status === 'ASSIGNED') return 'ACCEPTED';
   if (incident.status === 'ARRIVED') return 'ARRIVED';
   if (incident.status === 'PROCESSING') return 'PROCESSING';
+  
+  // Robust fallback: if incident exists and is not completed/cancelled, 
+  // allow it to show as PROCESSING so rescue team can finish it.
+  if (!['COMPLETED', 'CANCELLED', 'HANDLED_BY_EXTERNAL', 'PENDING'].includes(incident.status)) {
+    return 'PROCESSING';
+  }
+  
   return 'IDLE';
 }
 
@@ -54,6 +61,12 @@ export default function Home({ navigation }: any) {
   const [currentIncident, setCurrentIncident] = useState<any>(null);
   const [team, setTeam] = useState<any>(null);
   const [submittingTask, setSubmittingTask] = useState(false);
+  const [timeLeft, setTimeLeft] = useState<number>(0);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const mapRef = useRef<MapView>(null);
+  // Keep a ref to always access current team/incident in socket callbacks (avoid stale closures)
+  const teamRef = useRef<any>(null);
+  const currentIncidentRef = useRef<any>(null);
 
   const userCode = team?.code || user?.rescueTeam?.code || 'Đội chưa gắn mã';
   const userName = user?.name || 'Nhân viên cứu hộ';
@@ -79,8 +92,10 @@ export default function Home({ navigation }: any) {
         || 'OFFLINE';
 
       setTeam(nextTeam);
+      teamRef.current = nextTeam;
       setMemberAvailability(nextMemberAvailability);
       setCurrentIncident(nextIncident);
+      currentIncidentRef.current = nextIncident;
       setIncidentStage(mapIncidentToStage(nextIncident));
     } catch (error: any) {
       Alert.alert('Lỗi', error.response?.data?.message || 'Không tải được thông tin đội cứu hộ');
@@ -92,6 +107,55 @@ export default function Home({ navigation }: any) {
   useEffect(() => {
     loadRescueState();
   }, []);
+
+  useEffect(() => {
+    if (incidentStage === 'OFFERING' && timeLeft > 0) {
+      timerRef.current = setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            clearInterval(timerRef.current!);
+            // Auto-refuse when timer runs out: notify backend immediately
+            // so it can fall back to Team 2 without waiting for the Bull job
+            const expiredIncident = currentIncidentRef.current;
+            if (expiredIncident?._id) {
+              console.log('[Timer] Het gio - tu dong tu choi:', expiredIncident._id);
+              incidentAPI.refuse(expiredIncident._id, 'Hết thời gian xác nhận (35s)').catch((err: any) => {
+                console.warn('[Timer] Loi khi tu dong tu choi:', err?.response?.data?.message || err?.message);
+              });
+            }
+            setIncidentStage('IDLE');
+            currentIncidentRef.current = null;
+            setCurrentIncident(null);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else if (incidentStage !== 'OFFERING') {
+      if (timerRef.current) clearInterval(timerRef.current);
+    }
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [incidentStage, timeLeft]);
+
+
+  // Framer to automatically fit both team and incident on the screen
+  useEffect(() => {
+    if (incidentStage !== 'IDLE' && mapRef.current && currentCoordinates && currentIncident?.location?.coordinates) {
+      // Small timeout to allow MapView to layout properly before framing
+      setTimeout(() => {
+        mapRef.current?.fitToCoordinates([
+          { latitude: currentCoordinates[1], longitude: currentCoordinates[0] },
+          { latitude: currentIncident.location.coordinates[1], longitude: currentIncident.location.coordinates[0] }
+        ], {
+          edgePadding: { top: 50, right: 50, bottom: 350, left: 50 },
+          animated: true,
+        });
+      }, 500);
+    }
+  }, [incidentStage, currentIncident?.location?.coordinates]);
 
   useEffect(() => {
     let intervalId: ReturnType<typeof setInterval> | undefined;
@@ -121,7 +185,8 @@ export default function Home({ navigation }: any) {
       };
 
       await syncOnce();
-      intervalId = setInterval(syncOnce, 15000);
+      const interval = incidentStage !== 'IDLE' ? 5000 : 15000;
+      intervalId = setInterval(syncOnce, interval);
     };
 
     startLocationSync();
@@ -130,55 +195,118 @@ export default function Home({ navigation }: any) {
       mounted = false;
       if (intervalId) clearInterval(intervalId);
     };
-  }, [isOnline]);
+  }, [isOnline, incidentStage]);
 
   useEffect(() => {
     const socket = getSocket();
     if (!socket) return;
 
+    const handleIncidentOffer = (payload: any) => {
+      // Use ref so we always have the latest team data, avoiding stale closure
+      const latestTeam = teamRef.current;
+      const currentUserRole = latestTeam?.members?.find((m: any) => m.userId?._id === user?._id)?.role;
+      console.log('[Socket] incident:offer received. User role in team:', currentUserRole, 'Team:', latestTeam?.name);
+
+      // All rescue members see the offer, but only LEADER can act on it
+      const incident = normalizeIncident(payload.incident);
+      if (!incident) {
+        console.warn('[Socket] incident:offer — invalid payload', payload);
+        return;
+      }
+      setCurrentIncident(incident);
+      currentIncidentRef.current = incident;
+      setIncidentStage('OFFERING');
+      setTimeLeft(payload.timeoutSec || 35);
+      if (currentUserRole === 'LEADER') {
+        Alert.alert('Nhiệm vụ mới', `Bạn có 35 giây để chấp nhận sự cố ${incident.code}`);
+      } else {
+        Alert.alert('Đội có nhiệm vụ mới', `Đội bạn được đề xuất xử lý sự cố ${incident.code}. Đang chờ đội trưởng xác nhận.`);
+      }
+    };
+
     const handleAssignedIncident = (payload: any) => {
       const incident = normalizeIncident(payload);
       if (!incident) return;
+      
+      console.log('Force assignment received for:', incident.code);
       setCurrentIncident(incident);
-      setIncidentStage(mapIncidentToStage(incident));
-      setTeam((prev: any) => prev ? { ...prev, activeIncident: { _id: incident._id, code: incident.code } } : prev);
+      currentIncidentRef.current = incident;
+      setIncidentStage('ACCEPTED');
+      setTeam((prev: any) => {
+        const updated = prev ? { ...prev, activeIncident: { _id: incident._id, code: incident.code } } : prev;
+        teamRef.current = updated;
+        return updated;
+      });
+      
+      // Thông báo cho user biết họ đã được chỉ định (đặc biệt quan trọng khi force assign)
+      Alert.alert('Nhiệm vụ được chỉ định', `Dispatcher đã chỉ định đội của bạn xử lý sự cố ${incident.code}`);
     };
 
     const handleIncidentUpdated = (payload: any) => {
       const incidentId = payload?._id || payload?.id;
-      if (!incidentId || currentIncident?._id !== incidentId) return;
+      if (!incidentId) return;
 
-      setCurrentIncident((prev: any) => prev ? { ...prev, ...payload, _id: incidentId } : prev);
+      const latestTeam = teamRef.current;
+      const latestIncident = currentIncidentRef.current;
 
-      if (payload.status === 'PENDING' || payload.status === 'COMPLETED' || payload.status === 'CANCELLED' || payload.status === 'HANDLED_BY_EXTERNAL') {
+      // DISCOVERY: if incident is now assigned to our team but we don't have it yet
+      const belongsToMyTeam = payload.assignedTeam?.toString() === latestTeam?._id?.toString();
+      
+      if (latestIncident?._id !== incidentId && !belongsToMyTeam) {
+        return; // Not our incident
+      }
+
+      console.log('Incident update received:', payload.status, 'Belongs to me:', belongsToMyTeam);
+
+      if (!latestIncident && belongsToMyTeam) {
+        loadRescueState();
+        return;
+      }
+
+      setCurrentIncident((prev: any) => {
+        const updated = prev ? { ...prev, ...payload, _id: incidentId } : prev;
+        currentIncidentRef.current = updated;
+        return updated;
+      });
+
+      if (['COMPLETED', 'CANCELLED', 'HANDLED_BY_EXTERNAL', 'PENDING'].includes(payload.status)) {
         setCurrentIncident(null);
+        currentIncidentRef.current = null;
         setIncidentStage('IDLE');
         loadRescueState();
         return;
       }
 
-      if (payload.status === 'ASSIGNED') setIncidentStage('NEW_ALERT');
+      if (payload.status === 'ASSIGNED') setIncidentStage('ACCEPTED');
       if (payload.status === 'ARRIVED') setIncidentStage('ARRIVED');
       if (payload.status === 'PROCESSING') setIncidentStage('PROCESSING');
     };
 
     const handleIncidentRefused = ({ incidentId }: any) => {
-      if (currentIncident?._id !== incidentId) return;
+      if (currentIncidentRef.current?._id !== incidentId) return;
       setCurrentIncident(null);
+      currentIncidentRef.current = null;
       setIncidentStage('IDLE');
       loadRescueState();
     };
 
+    socket.on('incident:offer', handleIncidentOffer);
     socket.on('incident:assigned-to-me', handleAssignedIncident);
     socket.on('incident:updated', handleIncidentUpdated);
     socket.on('incident:refused', handleIncidentRefused);
 
+    // Chủ động join team room ngay khi team loaded
+    if (team?._id) {
+      socket.emit('rescue:join-team', team._id);
+    }
+
     return () => {
+      socket.off('incident:offer', handleIncidentOffer);
       socket.off('incident:assigned-to-me', handleAssignedIncident);
       socket.off('incident:updated', handleIncidentUpdated);
       socket.off('incident:refused', handleIncidentRefused);
     };
-  }, [currentIncident?._id]);
+  }, [currentIncident?._id, team?._id, user?._id]);
 
   const handleToggleOnline = async () => {
     const nextStatus = isOnline ? 'OFFLINE' : 'ONLINE';
@@ -214,32 +342,50 @@ export default function Home({ navigation }: any) {
     }
   };
 
-  const handleAdvanceTask = async () => {
-    if (incidentStage === 'NEW_ALERT') {
+  const handleAcceptIncident = async () => {
+    if (!currentIncident?._id) return;
+    setSubmittingTask(true);
+    try {
+      await incidentAPI.accept(currentIncident._id);
       setIncidentStage('ACCEPTED');
+      await loadRescueState();
+    } catch (error: any) {
+      Alert.alert('Lỗi', error.response?.data?.message || 'Không thể chấp nhận sự cố');
+    } finally {
+      setSubmittingTask(false);
+    }
+  };
+
+  const handleAdvanceTask = async () => {
+    if (incidentStage === 'OFFERING') {
+      await handleAcceptIncident();
       return;
     }
     if (incidentStage === 'ACCEPTED') {
+      // Notify arrival
       await submitIncidentStatus('ARRIVED', 'Đội cứu hộ đã đến hiện trường', 'ARRIVED');
       return;
     }
     if (incidentStage === 'ARRIVED') {
+      // Move to processing
       await submitIncidentStatus('PROCESSING', 'Đội cứu hộ đang xử lý sự cố', 'PROCESSING');
       return;
     }
     if (incidentStage === 'PROCESSING') {
+      // Final step: completion
       await submitIncidentStatus('COMPLETED', 'Đội cứu hộ đã hoàn thành xử lý sự cố', 'IDLE');
     }
   };
 
   const handleRefuseIncident = async () => {
-    if (!currentIncident?._id || incidentStage !== 'NEW_ALERT') return;
+    if (!currentIncident?._id) return;
 
     setSubmittingTask(true);
     try {
       await incidentAPI.refuse(currentIncident._id, 'Đội cứu hộ từ chối tiếp nhận sự cố');
       setCurrentIncident(null);
       setIncidentStage('IDLE');
+      setTimeLeft(0);
       await loadRescueState();
     } catch (error: any) {
       Alert.alert('Không thể từ chối sự cố', error.response?.data?.message || 'Vui lòng thử lại');
@@ -328,11 +474,13 @@ export default function Home({ navigation }: any) {
     </View>
   );
 
-  const renderNewAlertCard = () => (
+  const renderOfferingCard = () => (
     <View style={styles.cardBase}>
       <View style={styles.alertHeaderRow}>
-        <View style={{ width: 24 }} />
-        <Text style={styles.alertTitle}>Nhiệm vụ mới</Text>
+        <View style={styles.timerCircle}>
+          <Text style={styles.timerText}>{timeLeft}</Text>
+        </View>
+        <Text style={[styles.alertTitle, { color: COLORS.primary }]}>Nhiệm vụ mới</Text>
         <TouchableOpacity onPress={loadRescueState}>
           <Ionicons name="refresh" size={22} color={COLORS.dark} />
         </TouchableOpacity>
@@ -344,10 +492,12 @@ export default function Home({ navigation }: any) {
               ? INCIDENT_TYPES[currentIncident.type as keyof typeof INCIDENT_TYPES] || currentIncident.type
               : 'Sự cố mới'}
           </Text>
-          <Text style={styles.alertTypeSubLabel}>{currentIncident?.code || 'Chưa có mã sự cố'}</Text>
+          <Text style={styles.alertTypeSubLabel}>
+            {currentIncident?.code || 'Chưa có mã sự cố'} • {currentIncident?.distance || '??'} km
+          </Text>
         </View>
-        <View style={styles.alertIconCircleRed}>
-          <Ionicons name="car-outline" size={24} color="#E74C3C" />
+        <View style={styles.alertIconCircle}>
+          <Ionicons name="flash" size={24} color={COLORS.primary} />
         </View>
       </View>
       <View style={styles.addressRow}>
@@ -357,12 +507,12 @@ export default function Home({ navigation }: any) {
         </Text>
       </View>
       <TouchableOpacity
-        style={[styles.actionBtnFull, { backgroundColor: '#1C294F', marginTop: 24 }]}
-        onPress={handleAdvanceTask}
+        style={[styles.actionBtnFull, { backgroundColor: COLORS.primary, marginTop: 24 }]}
+        onPress={handleAcceptIncident}
         disabled={submittingTask}
       >
         <Text style={styles.actionBtnText}>
-          {submittingTask ? 'Đang cập nhật...' : 'Nhận nhiệm vụ'}
+          {submittingTask ? 'Đang cập nhật...' : 'Chấp nhận ngay'}
         </Text>
       </TouchableOpacity>
       <TouchableOpacity
@@ -410,8 +560,29 @@ export default function Home({ navigation }: any) {
           </Text>
         </View>
         <Text style={styles.taskCode}>{currentIncident?.code || 'Sự cố đang xử lý'}</Text>
+        
+        {/* Nút chỉ đường Native Google Maps/Apple Maps */}
         <TouchableOpacity
-          style={[styles.actionBtnFull, { backgroundColor: btnColor, marginTop: 16 }]}
+          style={[styles.actionBtnFull, { backgroundColor: '#3498DB', marginTop: 16 }]}
+          onPress={() => {
+            if (!currentCoordinates || !currentIncident?.location?.coordinates) {
+              Alert.alert('Chưa có tọa độ', 'Không thể chỉ đường vì thiếu tọa độ GPS.');
+              return;
+            }
+            const [lngOrigin, latOrigin] = currentCoordinates;
+            const [lngDest, latDest] = currentIncident.location.coordinates;
+            const url = `https://www.google.com/maps/dir/?api=1&origin=${latOrigin},${lngOrigin}&destination=${latDest},${lngDest}&travelmode=driving`;
+            Linking.openURL(url);
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Ionicons name="navigate-outline" size={20} color={COLORS.white} style={{ marginRight: 8 }} />
+            <Text style={styles.actionBtnText}>Chỉ đường</Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.actionBtnFull, { backgroundColor: btnColor, marginTop: 12 }]}
           onPress={handleAdvanceTask}
           disabled={submittingTask}
         >
@@ -424,9 +595,12 @@ export default function Home({ navigation }: any) {
   };
 
   const renderBottomCard = () => {
+    const currentUserRole = team?.members?.find((m: any) => m.userId?._id === user?._id)?.role;
+    const isLeader = currentUserRole === 'LEADER';
+
     switch (incidentStage) {
-      case 'NEW_ALERT':
-        return renderNewAlertCard();
+      case 'OFFERING':
+        return isLeader ? renderOfferingCard() : renderDashboardCard();
       case 'ACCEPTED':
       case 'ARRIVED':
       case 'PROCESSING':
@@ -441,6 +615,7 @@ export default function Home({ navigation }: any) {
       <View style={StyleSheet.absoluteFillObject}>
         {currentCoordinates ? (
           <MapView
+            ref={mapRef}
             style={{ flex: 1 }}
             initialRegion={{
               latitude: currentCoordinates[1],
@@ -476,6 +651,14 @@ export default function Home({ navigation }: any) {
                   <Ionicons name="warning" size={18} color={COLORS.white} />
                 </View>
               </Marker>
+            )}
+            {currentIncident?.routingPath && currentIncident.routingPath.length > 0 && (
+              <Polyline
+                coordinates={currentIncident.routingPath.map((p: any) => ({ latitude: p[1], longitude: p[0] }))}
+                strokeColor="#3498DB"
+                strokeWidth={5}
+                lineDashPattern={[0]}
+              />
             )}
           </MapView>
         ) : (
@@ -677,6 +860,29 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 20,
     backgroundColor: '#2ECC71',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timerCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 3,
+    borderColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  timerText: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: COLORS.primary,
+  },
+  alertIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#E6F0FF',
     alignItems: 'center',
     justifyContent: 'center',
   },

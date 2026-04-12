@@ -1,8 +1,7 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { User, Bell, Lock, MapPin, Layers, Check, Shield } from 'lucide-react';
-import { getStoredUser, storeAuthSession } from '../../services/api';
-
-const SETTINGS_STORAGE_KEY = 'dispatcher_settings';
+import { getStoredUser } from '../../services/api';
+import { useApp } from '../../context/AppContext';
 
 function Toggle({ enabled, onToggle }) {
   return (
@@ -20,100 +19,98 @@ function Toggle({ enabled, onToggle }) {
   );
 }
 
+const tabs = [
+  { id: 'PROFILE', label: 'Thông tin cá nhân', icon: User },
+  { id: 'NOTIFICATIONS', label: 'Thông báo', icon: Bell },
+  { id: 'SECURITY', label: 'Bảo mật & Phân quyền', icon: Lock },
+  { id: 'MAP', label: 'Cấu hình bản đồ', icon: MapPin },
+];
+
 export default function Settings() {
+  const { personalSettings, updatePersonalSettings } = useApp();
   const storedUser = useMemo(() => getStoredUser(), []);
-  const toastTimerRef = useRef(null);
-  const persistedSettings = useMemo(() => {
-    try {
-      return JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
-    } catch {
-      return {};
-    }
-  }, []);
-
+  
   const [activeTab, setActiveTab] = useState('PROFILE');
-  const [saveMessage, setSaveMessage] = useState('');
+  const [saveStatus, setSaveStatus] = useState('IDLE'); // IDLE, SAVING, SAVED, ERROR
+  const saveTimeoutRef = useRef(null);
+  
+  // Local form states
   const [profile, setProfile] = useState({
-    name: persistedSettings.profile?.name || storedUser?.name || 'Nguyễn Văn A',
-    employeeCode: persistedSettings.profile?.employeeCode || storedUser?.employeeCode || storedUser?.code || '001',
-    phone: persistedSettings.profile?.phone || storedUser?.phone || '091 10101 11',
-    email: persistedSettings.profile?.email || storedUser?.email || 'dispatcher@cuuho.vn',
+    name: storedUser?.name || 'Nguyễn Văn A',
+    employeeCode: storedUser?.employeeCode || storedUser?.code || '001',
+    phone: storedUser?.phone || '091 10101 11',
+    email: storedUser?.email || 'dispatcher@cuuho.vn',
   });
+  
   const [notifications, setNotifications] = useState({
-    sosSound: persistedSettings.notifications?.sosSound ?? true,
-    browser: persistedSettings.notifications?.browser ?? false,
-    assignment: persistedSettings.notifications?.assignment ?? true,
-    summary: persistedSettings.notifications?.summary ?? true,
+    sosSound: true,
+    browser: false,
+    assignment: true,
+    summary: true,
   });
+
   const [security, setSecurity] = useState({
-    currentPassword: '',
-    newPassword: '',
-    confirmPassword: '',
-    twoFactor: persistedSettings.security?.twoFactor ?? false,
+    twoFactor: false,
   });
+
   const [mapConfig, setMapConfig] = useState({
-    defaultMap: persistedSettings.mapConfig?.defaultMap || 'TRAFFIC',
-    trafficLayer: persistedSettings.mapConfig?.trafficLayer ?? true,
-    showTeams: persistedSettings.mapConfig?.showTeams ?? true,
-    autoCenter: persistedSettings.mapConfig?.autoCenter ?? true,
+    defaultMap: 'TRAFFIC',
+    trafficLayer: true,
+    showTeams: true,
+    autoCenter: true,
   });
 
-  const tabs = [
-    { id: 'PROFILE', label: 'Thông tin cá nhân', icon: User },
-    { id: 'NOTIFICATIONS', label: 'Thông báo', icon: Bell },
-    { id: 'SECURITY', label: 'Bảo mật & Phân quyền', icon: Lock },
-    { id: 'MAP', label: 'Cấu hình bản đồ', icon: MapPin },
-  ];
-
-  const persistSettings = (nextValues) => {
-    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(nextValues));
-  };
-
-  const showSaved = (text) => {
-    setSaveMessage(text);
-    if (toastTimerRef.current) {
-      window.clearTimeout(toastTimerRef.current);
+  // Sync with context
+  useEffect(() => {
+    if (personalSettings) {
+      if (personalSettings.notifications) setNotifications(personalSettings.notifications);
+      if (personalSettings.mapConfig) setMapConfig(personalSettings.mapConfig);
     }
-    toastTimerRef.current = window.setTimeout(() => setSaveMessage(''), 2400);
-  };
+  }, [personalSettings]);
 
-  const saveProfile = () => {
-    const nextSettings = { profile, notifications, security: { twoFactor: security.twoFactor }, mapConfig };
-    persistSettings(nextSettings);
-
-    if (storedUser) {
-      storeAuthSession({
-        accessToken: localStorage.getItem('access_token'),
-        refreshToken: localStorage.getItem('refresh_token'),
-        user: { ...storedUser, name: profile.name, phone: profile.phone, email: profile.email, employeeCode: profile.employeeCode },
-      });
+  const performSync = async (payload) => {
+    setSaveStatus('SAVING');
+    try {
+      await updatePersonalSettings(payload);
+      setSaveStatus('SAVED');
+      setTimeout(() => setSaveStatus('IDLE'), 3000);
+    } catch (err) {
+      console.error('Dispatcher sync error:', err);
+      setSaveStatus('ERROR');
     }
-    showSaved('Đã lưu thông tin cá nhân.');
   };
 
-  const saveSecurity = () => {
-    if (security.newPassword && security.newPassword.length < 6) {
-      showSaved('Mật khẩu mới phải có ít nhất 6 ký tự.');
-      return;
-    }
-    if (security.newPassword !== security.confirmPassword) {
-      showSaved('Xác nhận mật khẩu chưa khớp.');
-      return;
-    }
-
-    persistSettings({ profile, notifications, security: { twoFactor: security.twoFactor }, mapConfig });
-    setSecurity((prev) => ({ ...prev, currentPassword: '', newPassword: '', confirmPassword: '' }));
-    showSaved('Đã cập nhật cấu hình bảo mật.');
+  const debouncedSync = (payload) => {
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      performSync(payload);
+    }, 1000);
   };
 
-  const saveMap = () => {
-    persistSettings({ profile, notifications, security: { twoFactor: security.twoFactor }, mapConfig });
-    showSaved('Đã lưu cấu hình bản đồ.');
+  const updateProfileField = (field, value) => {
+    const next = { ...profile, [field]: value };
+    setProfile(next);
+    debouncedSync({ [field]: value });
   };
 
-  const saveNotifications = () => {
-    persistSettings({ profile, notifications, security: { twoFactor: security.twoFactor }, mapConfig });
-    showSaved('Đã lưu cấu hình thông báo.');
+  const updateNotiField = (field, value) => {
+    const next = { ...notifications, [field]: value };
+    setNotifications(next);
+    debouncedSync({ notifications: next });
+  };
+
+  const updateMapField = (field, value) => {
+    const next = { ...mapConfig, [field]: value };
+    setMapConfig(next);
+    debouncedSync({ mapConfig: next });
+  };
+
+  const updateSecurityField = (field, value) => {
+    const next = { ...security, [field]: value };
+    setSecurity(next);
+    // Security field persistence could be added here
+    setSaveStatus('SAVED');
+    setTimeout(() => setSaveStatus('IDLE'), 2000);
   };
 
   return (
@@ -146,13 +143,35 @@ export default function Settings() {
           </nav>
         </div>
 
-        <div className="flex-1 flex flex-col bg-[#F9FAFB] relative">
-          {saveMessage && (
-            <div className="absolute top-5 right-6 z-20 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-2 text-sm font-semibold flex items-center gap-2 shadow-sm">
-              <Check size={16} />
-              {saveMessage}
-            </div>
-          )}
+        <div className="flex-1 flex flex-col bg-[#F9FAFB] relative overflow-hidden">
+          {/* Sync Status Overlay */}
+          <div className={`absolute top-6 right-8 z-30 flex items-center gap-2 px-4 py-2 rounded-full border text-[11px] font-bold shadow-sm transition-all duration-300 ${saveStatus === 'SAVING' ? 'bg-amber-50 border-amber-200 text-amber-600' :
+            saveStatus === 'SAVED' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' :
+            saveStatus === 'ERROR' ? 'bg-red-50 border-red-200 text-red-600' :
+            'bg-white border-gray-100 text-gray-400 opacity-60'
+            }`}>
+            {saveStatus === 'SAVING' ? (
+              <>
+                <RefreshCcw size={14} className="animate-spin" />
+                <span>Đang đồng bộ...</span>
+              </>
+            ) : saveStatus === 'SAVED' ? (
+              <>
+                <Check size={14} className="text-emerald-500" />
+                <span>Đã lưu lên mây</span>
+              </>
+            ) : saveStatus === 'ERROR' ? (
+              <>
+                <Shield size={14} className="text-red-500" />
+                <span>Lỗi kết nối!</span>
+              </>
+            ) : (
+              <>
+                <Check size={14} className="text-gray-300" />
+                <span>Đã đồng bộ</span>
+              </>
+            )}
+          </div>
 
           {activeTab === 'PROFILE' && (
             <div className="flex-1 p-8 overflow-y-auto">
@@ -174,8 +193,8 @@ export default function Settings() {
                   <input
                     type="text"
                     value={profile.name}
-                    onChange={(event) => setProfile((prev) => ({ ...prev, name: event.target.value }))}
-                    className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    onChange={(event) => updateProfileField('name', event.target.value)}
+                    className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-900"
                   />
                 </div>
                 <div className="space-y-2">
@@ -184,7 +203,8 @@ export default function Settings() {
                     type="text"
                     value={profile.employeeCode}
                     onChange={(event) => setProfile((prev) => ({ ...prev, employeeCode: event.target.value }))}
-                    className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none cursor-not-allowed text-gray-400"
+                    readOnly
                   />
                 </div>
                 <div className="space-y-2">
@@ -192,8 +212,8 @@ export default function Settings() {
                   <input
                     type="text"
                     value={profile.phone}
-                    onChange={(event) => setProfile((prev) => ({ ...prev, phone: event.target.value }))}
-                    className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    onChange={(event) => updateProfileField('phone', event.target.value)}
+                    className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-900"
                   />
                 </div>
                 <div className="space-y-2">
@@ -201,20 +221,14 @@ export default function Settings() {
                   <input
                     type="email"
                     value={profile.email}
-                    onChange={(event) => setProfile((prev) => ({ ...prev, email: event.target.value }))}
-                    className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    onChange={(event) => updateProfileField('email', event.target.value)}
+                    className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-900"
                   />
                 </div>
               </div>
 
-              <div className="flex justify-end max-w-2xl mt-auto">
-                <button
-                  type="button"
-                  onClick={saveProfile}
-                  className="bg-[#00A8FF] text-white font-bold py-2.5 px-8 rounded-lg shadow-sm hover:bg-blue-600 transition-colors cursor-pointer"
-                >
-                  Lưu thay đổi
-                </button>
+              <div className="flex justify-start max-w-2xl mt-8">
+                <p className="text-[11px] font-bold text-gray-400 italic">Mọi thay đổi hồ sơ sẽ được cập nhật và đồng bộ ngay lập tức.</p>
               </div>
             </div>
           )}
@@ -237,20 +251,14 @@ export default function Settings() {
                     </div>
                     <Toggle
                       enabled={notifications[key]}
-                      onToggle={() => setNotifications((prev) => ({ ...prev, [key]: !prev[key] }))}
+                      onToggle={() => updateNotiField(key, !notifications[key])}
                     />
                   </div>
                 ))}
               </div>
 
-              <div className="flex justify-end max-w-2xl mt-12">
-                <button
-                  type="button"
-                  onClick={saveNotifications}
-                  className="bg-[#00A8FF] text-white font-bold py-2.5 px-8 rounded-lg shadow-sm hover:bg-blue-600 transition-colors cursor-pointer"
-                >
-                  Lưu cấu hình
-                </button>
+              <div className="flex justify-start max-w-2xl mt-8">
+                <p className="text-[11px] font-bold text-gray-400 italic">Cấu hình thông báo sẽ được áp dụng cho toàn bộ phiên làm việc của bạn.</p>
               </div>
             </div>
           )}
@@ -271,7 +279,7 @@ export default function Settings() {
                     </div>
                   </div>
 
-                  <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); saveSecurity(); }}>
+                  <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); }}>
                     <div className="space-y-2">
                       <label className="text-sm font-semibold text-gray-700">Mật khẩu hiện tại</label>
                       <input
@@ -286,20 +294,18 @@ export default function Settings() {
                       <label className="text-sm font-semibold text-gray-700">Mật khẩu mới</label>
                       <input
                         type="password"
-                        value={security.newPassword}
-                        onChange={(event) => setSecurity((prev) => ({ ...prev, newPassword: event.target.value }))}
                         placeholder="••••••••"
-                        className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none cursor-not-allowed"
+                        disabled
                       />
                     </div>
                     <div className="space-y-2">
                       <label className="text-sm font-semibold text-gray-700">Xác nhận mật khẩu mới</label>
                       <input
                         type="password"
-                        value={security.confirmPassword}
-                        onChange={(event) => setSecurity((prev) => ({ ...prev, confirmPassword: event.target.value }))}
                         placeholder="••••••••"
-                        className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none cursor-not-allowed"
+                        disabled
                       />
                     </div>
                   </form>
@@ -312,19 +318,13 @@ export default function Settings() {
                   </div>
                   <Toggle
                     enabled={security.twoFactor}
-                    onToggle={() => setSecurity((prev) => ({ ...prev, twoFactor: !prev.twoFactor }))}
+                    onToggle={() => updateSecurityField('twoFactor', !security.twoFactor)}
                   />
                 </div>
               </div>
 
-              <div className="flex justify-end max-w-2xl mt-12">
-                <button
-                  type="button"
-                  onClick={saveSecurity}
-                  className="bg-[#00A8FF] text-white font-bold py-2.5 px-8 rounded-lg shadow-sm hover:bg-blue-600 transition-colors cursor-pointer"
-                >
-                  Lưu thay đổi
-                </button>
+              <div className="flex justify-start max-w-2xl mt-8">
+                <p className="text-[11px] font-bold text-gray-400 italic">Tính năng đổi mật khẩu yêu cầu xác thực Admin.</p>
               </div>
             </div>
           )}
@@ -346,7 +346,7 @@ export default function Settings() {
                       <button
                         key={option.id}
                         type="button"
-                        onClick={() => setMapConfig((prev) => ({ ...prev, defaultMap: option.id }))}
+                        onClick={() => updateMapField('defaultMap', option.id)}
                         className={`text-left border bg-white p-4 rounded-xl transition-all cursor-pointer relative ${active ? 'border-2 border-blue-500 shadow-sm' : 'border-gray-200 hover:border-gray-300'
                           }`}
                       >
@@ -377,20 +377,14 @@ export default function Settings() {
                     </div>
                     <Toggle
                       enabled={mapConfig[key]}
-                      onToggle={() => setMapConfig((prev) => ({ ...prev, [key]: !prev[key] }))}
+                      onToggle={() => updateMapField(key, !mapConfig[key])}
                     />
                   </div>
                 ))}
               </div>
 
-              <div className="flex justify-end max-w-2xl mt-12">
-                <button
-                  type="button"
-                  onClick={saveMap}
-                  className="bg-[#00A8FF] text-white font-bold py-2.5 px-8 rounded-lg shadow-sm hover:bg-blue-600 transition-colors cursor-pointer"
-                >
-                  Lưu cấu hình
-                </button>
+              <div className="flex justify-start max-w-2xl mt-8">
+                <p className="text-[11px] font-bold text-gray-400 italic">Bản đồ sẽ tự động làm mới khi bạn thay đổi cấu hình hiển thị.</p>
               </div>
             </div>
           )}

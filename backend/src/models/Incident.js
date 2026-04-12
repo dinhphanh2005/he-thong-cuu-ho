@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const INCIDENT_STATUSES = ['PENDING', 'ASSIGNED', 'ARRIVED', 'PROCESSING', 'COMPLETED', 'CANCELLED', 'HANDLED_BY_EXTERNAL'];
+const INCIDENT_STATUSES = ['PENDING', 'OFFERING', 'ASSIGNED', 'ARRIVED', 'PROCESSING', 'COMPLETED', 'CANCELLED', 'HANDLED_BY_EXTERNAL', 'IN_PROGRESS'];
 
 const timelineEntrySchema = new mongoose.Schema(
   {
@@ -45,8 +45,13 @@ const incidentSchema = new mongoose.Schema(
       match: [/^0[35789][0-9]{8}$/, 'SĐT không hợp lệ'],
     },
     assignedTeam: { type: mongoose.Schema.Types.ObjectId, ref: 'RescueTeam', default: null },
+    offeredTo: { type: mongoose.Schema.Types.ObjectId, ref: 'RescueTeam', default: null },
+    offerExpiresAt: { type: Date },
+    rejectedTeams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'RescueTeam' }],
+    assignmentAttempts: { type: Number, default: 0 },
     timeline: [timelineEntrySchema],
     isEscalated: { type: Boolean, default: false },
+    routingPath: { type: [[Number]], default: [] }, // Array of [lng, lat]
     estimatedArrival: { type: Date },
     completedAt: { type: Date },
   },
