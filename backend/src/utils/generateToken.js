@@ -2,11 +2,12 @@ const jwt = require('jsonwebtoken');
 
 /**
  * Tạo Access Token (ngắn hạn)
+ * Mặc định: 7d (overridden bởi JWT_EXPIRE trong .env)
  */
-const generateAccessToken = (id, sessionId = null) => {
-  const payload = { id };
+const generateAccessToken = (userId, sessionId = null) => {
+  const payload = { id: userId };
   if (sessionId) payload.sid = sessionId;
-  
+
   return jwt.sign(payload, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRE || '7d',
   });
@@ -14,9 +15,10 @@ const generateAccessToken = (id, sessionId = null) => {
 
 /**
  * Tạo Refresh Token (dài hạn)
+ * Mặc định: 30d (overridden bởi JWT_REFRESH_EXPIRE trong .env)
  */
-const generateRefreshToken = (id, sessionId = null) => {
-  const payload = { id };
+const generateRefreshToken = (userId, sessionId = null) => {
+  const payload = { id: userId };
   if (sessionId) payload.sid = sessionId;
 
   return jwt.sign(payload, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET, {
