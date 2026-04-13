@@ -236,6 +236,24 @@ const notifyDispatcherRefused = async (incident, teamName) => {
   });
 };
 
+/**
+ * MOCK: Gửi OTP qua Email
+ */
+const sendOTPEmail = async (email, otp) => {
+  logger.info(`[MOCK EMAIL] Gửi tới: ${email} | Nội dung: Mã xác thực OTP của bạn là: ${otp}`);
+  // Trong thực tế sẽ gọi nodemailer hoặc SendGrid
+  return true;
+};
+
+/**
+ * MOCK: Gửi OTP qua SMS
+ */
+const sendOTPSMS = async (phone, otp) => {
+  logger.info(`[MOCK SMS] Gửi tới: ${phone} | Nội dung: [CuuHoGiaoThong] Ma OTP cua ban la ${otp}. Hieu luc 5 phut.`);
+  // Trong thực tế sẽ gọi Twilio, Infobip hoặc eSMS
+  return true;
+};
+
 module.exports = {
   sendNotification,
   sendSOSAlert,
@@ -243,4 +261,6 @@ module.exports = {
   notifyCitizenCompleted,
   notifyRescueTeamAssigned,
   notifyDispatcherRefused,
+  sendOTPEmail,
+  sendOTPSMS,
 };

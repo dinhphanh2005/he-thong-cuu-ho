@@ -26,6 +26,14 @@ exports.protect = async (req, res, next) => {
     return res.status(401).json({ success: false, message: 'Tài khoản không tồn tại.' });
   }
 
+  // Concurrent session check: verify that the token's sessionId matches the DB
+  if (decoded.sid && user.currentSessionId && decoded.sid !== user.currentSessionId) {
+    return res.status(401).json({ 
+      success: false, 
+      message: 'Phiên làm việc đã hết hạn hoặc được đăng nhập ở thiết bị khác.' 
+    });
+  }
+
   if (!user.isActive) {
     return res.status(403).json({ success: false, message: 'Tài khoản đã bị khóa.' });
   }

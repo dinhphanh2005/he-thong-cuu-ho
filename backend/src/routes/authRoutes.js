@@ -9,6 +9,8 @@ const {
   changePassword,
   logout,
   updateFcmToken,
+  sendOTP,
+  verifyOTP,
 } = require('../controllers/authController');
 
 const { protect } = require('../middleware/authMiddleware');
@@ -198,6 +200,24 @@ router.post('/change-password', protect, changePasswordRules, validate, changePa
  *         description: Cập nhật thành công
  */
 router.patch('/fcm-token', protect, updateFcmToken);
+
+/**
+ * @swagger
+ * /api/v1/auth/send-otp:
+ *   post:
+ *     summary: Gửi mã OTP xác thực
+ *     tags: [Auth]
+ */
+router.post('/send-otp', sendOTP);
+
+/**
+ * @swagger
+ * /api/v1/auth/verify-otp:
+ *   post:
+ *     summary: Xác thực mã OTP
+ *     tags: [Auth]
+ */
+router.post('/verify-otp', verifyOTP);
 
 // ================================================================
 // ⚠️  CHỈ DÙNG LÚC DEV — tự động bị tắt khi NODE_ENV=production

@@ -30,6 +30,9 @@ const userSchema = new mongoose.Schema(
     },
     fcmToken: { type: String, default: null }, // Firebase Cloud Messaging
     refreshToken: { type: String, select: false, default: null },
+    currentSessionId: { type: String, default: null },
+    otpCode: { type: String, default: null },
+    otpExpire: { type: Date, default: null },
     isActive: { type: Boolean, default: true },
     availabilityStatus: {
       type: String,

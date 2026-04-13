@@ -78,6 +78,13 @@ api.interceptors.response.use(
     }
 
     if (error.response?.status === 401 && !orig._retry) {
+      // Bỏ qua interceptor cho route login — lỗi 401 ở login là "sai mật khẩu",
+      // không phải "hết hạn token", nên KHÔNG redirect hay reload
+      const isLoginRoute = orig.url?.includes('/auth/login');
+      if (isLoginRoute) {
+        return Promise.reject(error);
+      }
+
       orig._retry = true;
       try {
         const refreshToken = localStorage.getItem('refresh_token');
