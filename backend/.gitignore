@@ -1,3 +1,10 @@
+# Scratch & Debug
+scratch/
+scratch.js
+test-*.js
+test_tc12_ratelimit.js
+
+# Existing rules
 node_modules/
 .env
 uploads/

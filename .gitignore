@@ -1,0 +1,21 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Documentation & Large Binaries
+*.fig
+*.pdf
+*.docx
+ANALYSIS_AND_TEST_PLAN.md
+testing.md
+
+# Build & Dependencies (General)
+node_modules/
+dist/
+build/
+*.log
