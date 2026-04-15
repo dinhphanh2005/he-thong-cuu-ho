@@ -6,6 +6,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+*.pem
 
 # Documentation & Large Binaries
 *.fig

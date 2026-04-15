@@ -1,4 +1,6 @@
 import axios from 'axios';
+import { store } from '../store/store.js';
+import { setUser, clearUser } from '../store/authSlice.js';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api/v1';
 const ALLOWED_WEB_ROLES = ['DISPATCHER', 'ADMIN'];
@@ -14,6 +16,8 @@ export function clearAuth() {
   localStorage.removeItem('refresh_token');
   localStorage.removeItem('auth_user');
   localStorage.removeItem('password_change_required');
+  // Đồng bộ Redux store
+  store.dispatch(clearUser());
 }
 
 export function storeAuthSession({ accessToken, refreshToken, user, mustChangePassword = false }) {
@@ -22,6 +26,8 @@ export function storeAuthSession({ accessToken, refreshToken, user, mustChangePa
 
   if (user) {
     localStorage.setItem('auth_user', JSON.stringify(user));
+    // Đồng bộ Redux store
+    store.dispatch(setUser(user));
   } else {
     localStorage.removeItem('auth_user');
   }
