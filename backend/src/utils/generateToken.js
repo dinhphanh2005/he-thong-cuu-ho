@@ -4,12 +4,12 @@ const jwt = require('jsonwebtoken');
  * Tạo Access Token (ngắn hạn)
  * Mặc định: 7d (overridden bởi JWT_EXPIRE trong .env)
  */
-const generateAccessToken = (userId, sessionId = null) => {
+const generateAccessToken = (userId, sessionId = null, overrideExpiresIn = null) => {
   const payload = { id: userId };
   if (sessionId) payload.sid = sessionId;
 
   return jwt.sign(payload, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRE || '7d',
+    expiresIn: overrideExpiresIn || process.env.JWT_EXPIRE || '7d',
   });
 };
 

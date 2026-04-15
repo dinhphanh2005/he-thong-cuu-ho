@@ -14,7 +14,8 @@ import {
   Trash2,
   Eye,
   Slash,
-  History
+  History,
+  Shield
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { adminAPI } from '../../services/api';
@@ -222,6 +223,99 @@ function AddPersonnelModal({ onClose, teamId, teamName, onSucceed }) {
   );
 }
 
+function HistoryModal({ onClose, teamId, teamName }) {
+  const [history, setHistory] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    let isMounted = true;
+    adminAPI.getPartnerHistory(teamId).then(res => {
+      if (isMounted) {
+        setHistory(res.data.data);
+        setLoading(false);
+      }
+    }).catch(err => {
+      console.error(err);
+      if (isMounted) setLoading(false);
+    });
+    return () => isMounted = false;
+  }, [teamId]);
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[120] p-4">
+      <div className="bg-white rounded-[32px] w-full max-w-2xl shadow-2xl relative animate-slide-up flex flex-col max-h-[85vh]">
+        <div className="p-8 pb-4 flex justify-between items-center border-b border-gray-50 flex-shrink-0">
+           <div>
+              <h3 className="text-xl font-black text-gray-900">Lịch sử hoạt động</h3>
+              <p className="text-xs text-gray-500 font-medium mt-1">Đội: <span className="text-blue-600">{teamName}</span></p>
+           </div>
+           <button type="button" onClick={onClose} className="p-2 hover:bg-gray-50 rounded-full transition-colors"><X size={20} /></button>
+        </div>
+        
+        <div className="p-8 overflow-y-auto flex-1">
+          {loading ? (
+             <div className="flex justify-center p-8"><div className="animate-spin w-8 h-8 flex border-4 border-t-transparent border-blue-500 rounded-full"/></div>
+          ) : history.length === 0 ? (
+             <p className="text-center text-gray-400 font-medium italic p-8">Chưa có lịch sử xử lý sự cố nào.</p>
+          ) : (
+            <div className="space-y-4">
+               {history.map(inc => (
+                 <div key={inc._id} className="p-5 bg-gray-50 border border-gray-100 rounded-2xl flex flex-col gap-2 relative">
+                   <div className="flex justify-between items-start">
+                     <p className="text-sm font-black text-gray-900">Mã ca: {inc.code || '...'}</p>
+                     <span className={`px-2 py-1 text-[10px] font-black rounded ${inc.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700' : 'bg-orange-100 text-orange-700'}`}>
+                        {inc.status}
+                     </span>
+                   </div>
+                   <p className="text-xs text-gray-600">Loại: <b>{inc.type}</b></p>
+                   <p className="text-xs text-gray-500">Vị trí: {inc.location?.address || 'Chưa rõ'}</p>
+                   <p className="text-[10px] text-gray-400 mt-2">Ghi nhận: {new Date(inc.createdAt).toLocaleString('vi-VN')} {inc.completedAt ? `• Hoàn thành: ${new Date(inc.completedAt).toLocaleString('vi-VN')}` : ''}</p>
+                 </div>
+               ))}
+            </div>
+          )}
+        </div>
+        
+        <div className="p-5 border-t border-gray-50 flex justify-end">
+          <button type="button" onClick={onClose} className="px-6 py-3 bg-gray-100 rounded-xl text-sm font-black text-gray-600 hover:bg-gray-200 transition-all">Đóng</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DummyPDFViewer({ onClose, title }) {
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-[200] p-4">
+      <div className="bg-[#1e1e1e] rounded-[24px] w-full max-w-4xl shadow-2xl relative animate-scale-in flex flex-col h-[80vh] overflow-hidden border border-gray-800">
+        <div className="p-4 bg-[#2d2d2d] border-b border-black flex justify-between items-center shadow-md z-10">
+           <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-red-500/20 text-red-400 flex items-center justify-center"><FileText size={16}/></div>
+              <h3 className="text-sm font-bold text-gray-200">{title}</h3>
+           </div>
+           <button type="button" onClick={onClose} className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-colors"><X size={20} /></button>
+        </div>
+        <div className="flex-1 bg-[#323639] flex flex-col items-center overflow-y-auto p-8 relative">
+           <div className="bg-white w-full max-w-2xl min-h-[800px] shadow-2xl mb-8 flex flex-col items-center justify-center relative select-none">
+              <div className="absolute inset-0 opacity-5 flex flex-wrap justify-center items-center pointer-events-none overflow-hidden">
+                 {Array.from({length: 20}).map((_, i) => <span key={i} className="text-4xl font-black transform -rotate-45 m-4">SAMPLE</span>)}
+              </div>
+              <Shield size={64} className="text-blue-200 mb-6" />
+              <h1 className="text-3xl font-black text-gray-800 border-b-4 border-blue-600 pb-2 mb-4">CỘNG HOÀ XÃ HỘI CHỦ NGHĨA VIỆT NAM</h1>
+              <h2 className="text-xl font-bold text-gray-600 mb-12">Độc lập - Tự do - Hạnh phúc</h2>
+              <div className="text-center space-y-4">
+                 <h3 className="text-2xl font-black text-red-600 mb-6 uppercase">Giấy chứng nhận đăng ký doanh nghiệp</h3>
+                 <p className="text-gray-500">Mã số doanh nghiệp: <strong>0101234567</strong></p>
+                 <p className="text-gray-500">Đăng ký lần đầu: ngày 12 tháng 02 năm 2026</p>
+                 <p className="text-gray-500 mt-8 italic">(Bản sao điện tử phục vụ mục đích thẩm định Hệ thống Cứu hộ Giao thông)</p>
+              </div>
+           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // --- Main Page ---
 
 export default function Teams() {
@@ -231,6 +325,8 @@ export default function Teams() {
   const [modal, setModal] = useState(null);
   const [selectedPartnerId, setSelectedPartnerId] = useState(null);
   const [activeTabPanel, setActiveTabPanel] = useState('INFO');
+  const [historyModalPartner, setHistoryModalPartner] = useState(null);
+  const [pdfTitle, setPdfTitle] = useState(null);
 
   const handleToggleSuspend = async (e, id, currentStatus) => {
     e.stopPropagation();
@@ -420,7 +516,7 @@ export default function Teams() {
                                           {item.status === 'SUSPENDED' ? 'Kích hoạt lại' : 'Ngừng hoạt động'}
                                        </button>
                                        <button 
-                                         onClick={(e) => { e.stopPropagation(); setActiveMenu(null); alert('Đang trích xuất lịch sử hoạt động đội...'); }}
+                                         onClick={(e) => { e.stopPropagation(); setActiveMenu(null); setHistoryModalPartner(item); }}
                                          className="w-full px-4 py-2.5 text-left text-sm font-bold text-gray-700 hover:bg-gray-50 flex items-center gap-3"
                                        >
                                           <History size={16} className="text-purple-500" /> Lịch sử hoạt động
@@ -522,7 +618,12 @@ export default function Teams() {
                                    <p className="text-[10px] font-bold text-gray-400">PDF • 1.2 MB. Tải lên 12/02/2026</p>
                                 </div>
                              </div>
-                             <button className="px-4 py-2 bg-white border border-gray-200 rounded-xl text-[10px] font-black text-gray-600 hover:bg-gray-100 transition-all shadow-sm">Xem tệp</button>
+                             <button 
+                               onClick={() => setPdfTitle(`GPDKKD_${selectedPartner.code}.pdf`)} 
+                               className="px-4 py-2 bg-white border border-gray-200 rounded-xl text-[10px] font-black text-gray-600 hover:bg-gray-100 transition-all shadow-sm"
+                             >
+                               Xem tệp
+                             </button>
                          </div>
                       </div>
 
@@ -619,6 +720,18 @@ export default function Teams() {
           teamName={selectedPartner?.name}
           onSucceed={() => { fetchTeams(); }}
         />
+      )}
+
+      {historyModalPartner && (
+        <HistoryModal 
+          onClose={() => setHistoryModalPartner(null)} 
+          teamId={historyModalPartner._id || historyModalPartner.id}
+          teamName={historyModalPartner.name}
+        />
+      )}
+
+      {pdfTitle && (
+        <DummyPDFViewer onClose={() => setPdfTitle(null)} title={pdfTitle} />
       )}
 
     </div>

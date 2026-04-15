@@ -21,12 +21,15 @@ function EditProfileScreen({ user, onClose, onSave }: any) {
     if (!name.trim()) { Alert.alert('Lỗi', 'Tên không được để trống'); return; }
     setSaving(true);
     try {
-      const { data } = await authAPI.getMe(); 
+      // Gọi API thực sự để lưu tên mới
+      await authAPI.updateSettings({ name: name.trim() });
+      // Sau đó lấy lại thông tin mới nhất từ server
+      const { data } = await authAPI.getMe();
       onSave(data.data);
       Alert.alert('Thành công', 'Đã cập nhật thông tin');
       onClose();
-    } catch {
-      Alert.alert('Lỗi', 'Không thể cập nhật thông tin');
+    } catch (e: any) {
+      Alert.alert('Lỗi', e.response?.data?.message || 'Không thể cập nhật thông tin');
     } finally {
       setSaving(false);
     }
@@ -47,8 +50,9 @@ function EditProfileScreen({ user, onClose, onSave }: any) {
         <Text style={modalStyles.label}>Họ và tên</Text>
         <TextInput style={modalStyles.input} value={name} onChangeText={setName} placeholder="Nhập tên" placeholderTextColor="#8A8A8A" />
         <Text style={modalStyles.label}>Số điện thoại</Text>
-        <TextInput style={modalStyles.input} value={phone} onChangeText={setPhone} placeholder="Nhập SĐT" keyboardType="phone-pad" placeholderTextColor="#8A8A8A" />
-        <Text style={modalStyles.label}>Email</Text>
+        <TextInput style={[modalStyles.input, { color: '#aaa' }]} value={phone} editable={false} placeholderTextColor="#8A8A8A" />
+        <Text style={modalStyles.helperText}>Số điện thoại không thể thay đổi. Liên hệ admin để cập nhật.</Text>
+        <Text style={[modalStyles.label, { marginTop: 16 }]}>Email</Text>
         <TextInput style={[modalStyles.input, { color: '#aaa' }]} value={user?.email || ''} editable={false} placeholderTextColor="#8A8A8A" />
         <Text style={modalStyles.helperText}>Email không thể thay đổi</Text>
       </ScrollView>
@@ -68,8 +72,8 @@ function MyVehicleScreen({ onClose }: any) {
           <Ionicons name="close" size={24} color={COLORS.dark} />
         </TouchableOpacity>
         <Text style={modalStyles.title}>Phương tiện cứu hộ</Text>
-        <TouchableOpacity onPress={() => { Alert.alert('Đã lưu'); onClose(); }}>
-          <Text style={modalStyles.saveBtn}>Lưu</Text>
+        <TouchableOpacity onPress={() => Alert.alert('Thông báo', 'Chức năng quản lý phương tiện đang được phát triển.')}>
+          <Text style={modalStyles.saveBtn}>OK</Text>
         </TouchableOpacity>
       </View>
       <View style={{ padding: 20, gap: 16 }}>

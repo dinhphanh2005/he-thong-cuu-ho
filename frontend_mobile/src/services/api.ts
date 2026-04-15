@@ -59,6 +59,9 @@ export const authAPI = {
 
   updateFcmToken: (fcmToken: string) =>
     api.patch('/auth/fcm-token', { fcmToken }),
+
+  updateSettings: (settings: any) =>
+    api.patch('/auth/settings', settings),
 };
 
 // ==================== INCIDENTS ====================

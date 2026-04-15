@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { User, Bell, Lock, MapPin, Layers, Check, Shield } from 'lucide-react';
-import { getStoredUser } from '../../services/api';
+import { getStoredUser, authAPI } from '../../services/api';
 import { useApp } from '../../context/AppContext';
 
 function Toggle({ enabled, onToggle }) {
@@ -60,11 +60,16 @@ export default function Settings() {
     autoCenter: true,
   });
 
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [passwordError, setPasswordError] = useState('');
+  const [isChangingPass, setIsChangingPass] = useState(false);
+
   // Sync with context
   useEffect(() => {
     if (personalSettings) {
       if (personalSettings.notifications) setNotifications(personalSettings.notifications);
       if (personalSettings.mapConfig) setMapConfig(personalSettings.mapConfig);
+      if (personalSettings.security) setSecurity(personalSettings.security);
     }
   }, [personalSettings]);
 
@@ -108,9 +113,36 @@ export default function Settings() {
   const updateSecurityField = (field, value) => {
     const next = { ...security, [field]: value };
     setSecurity(next);
-    // Security field persistence could be added here
-    setSaveStatus('SAVED');
-    setTimeout(() => setSaveStatus('IDLE'), 2000);
+    debouncedSync({ security: next });
+  };
+
+  const handlePasswordChange = async (e) => {
+    e.preventDefault();
+    if (!passwordForm.newPassword || !passwordForm.confirmPassword) {
+      setPasswordError('Vui lòng điền mật khẩu mới và xác nhận');
+      return;
+    }
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordError('Mật khẩu xác nhận không khớp');
+      return;
+    }
+    if (passwordForm.newPassword.length < 6) {
+      setPasswordError('Mật khẩu mới phải tối thiểu 6 ký tự');
+      return;
+    }
+    try {
+      setIsChangingPass(true);
+      setPasswordError('');
+      await authAPI.changePassword(passwordForm.newPassword);
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setSaveStatus('SAVED');
+      setTimeout(() => setSaveStatus('IDLE'), 2000);
+      alert('Đổi mật khẩu thành công! Vui lòng sử dụng mật khẩu mới cho lần đăng nhập kế tiếp.');
+    } catch(err) {
+      setPasswordError(err.response?.data?.message || 'Không thể đổi mật khẩu');
+    } finally {
+      setIsChangingPass(false);
+    }
   };
 
   return (
@@ -212,18 +244,20 @@ export default function Settings() {
                   <input
                     type="text"
                     value={profile.phone}
-                    onChange={(event) => updateProfileField('phone', event.target.value)}
-                    className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-900"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none cursor-not-allowed text-gray-400 font-bold"
+                    readOnly
                   />
+                  <p className="text-[10px] text-gray-400">Liên hệ Admin để đổi SĐT (dùng để đăng nhập)</p>
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-gray-700">Email</label>
                   <input
                     type="email"
                     value={profile.email}
-                    onChange={(event) => updateProfileField('email', event.target.value)}
-                    className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-900"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none cursor-not-allowed text-gray-400 font-bold"
+                    readOnly
                   />
+                  <p className="text-[10px] text-gray-400">Khoá Email không thể chỉnh sửa</p>
                 </div>
               </div>
 
@@ -279,13 +313,13 @@ export default function Settings() {
                     </div>
                   </div>
 
-                  <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); }}>
+                  <form className="space-y-5" onSubmit={handlePasswordChange}>
                     <div className="space-y-2">
                       <label className="text-sm font-semibold text-gray-700">Mật khẩu hiện tại</label>
                       <input
                         type="password"
-                        value={security.currentPassword}
-                        onChange={(event) => setSecurity((prev) => ({ ...prev, currentPassword: event.target.value }))}
+                        value={passwordForm.currentPassword}
+                        onChange={(event) => setPasswordForm((prev) => ({ ...prev, currentPassword: event.target.value }))}
                         placeholder="••••••••"
                         className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
@@ -294,20 +328,32 @@ export default function Settings() {
                       <label className="text-sm font-semibold text-gray-700">Mật khẩu mới</label>
                       <input
                         type="password"
+                        value={passwordForm.newPassword}
+                        onChange={(event) => setPasswordForm((prev) => ({ ...prev, newPassword: event.target.value }))}
                         placeholder="••••••••"
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none cursor-not-allowed"
-                        disabled
+                        className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
                     <div className="space-y-2">
                       <label className="text-sm font-semibold text-gray-700">Xác nhận mật khẩu mới</label>
                       <input
                         type="password"
+                        value={passwordForm.confirmPassword}
+                        onChange={(event) => setPasswordForm((prev) => ({ ...prev, confirmPassword: event.target.value }))}
                         placeholder="••••••••"
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none cursor-not-allowed"
-                        disabled
+                        className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
+                    {passwordError && (
+                      <p className="text-red-500 text-sm">{passwordError}</p>
+                    )}
+                    <button
+                      type="submit"
+                      disabled={isChangingPass}
+                      className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-xl transition-all disabled:opacity-60"
+                    >
+                      {isChangingPass ? 'Đang lưu...' : 'Thay đổi mật khẩu'}
+                    </button>
                   </form>
                 </div>
 

@@ -13,6 +13,7 @@ const {
 
 const { protect, checkPasswordChange, authorize } = require('../middleware/authMiddleware');
 const { updateLocationRules, validate } = require('../middleware/validationMiddleware');
+const { cacheRoute, clearCachePattern, clearCache } = require('../middleware/cacheMiddleware');
 
 /**
  * @swagger
@@ -64,7 +65,7 @@ router.get('/my-team', authorize('RESCUE'), getMyTeam);
  *       400:
  *         description: Thiếu lat, lng
  */
-router.get('/active', getActiveTeamsForCitizen);
+router.get('/active', cacheRoute(60), getActiveTeamsForCitizen);
 
 /**
  * @swagger
@@ -93,7 +94,7 @@ router.get('/active', getActiveTeamsForCitizen);
  *       200:
  *         description: Danh sách đội cứu hộ + vị trí GPS hiện tại
  */
-router.get('/', authorize('DISPATCHER', 'ADMIN'), getAllTeams);
+router.get('/', authorize('DISPATCHER', 'ADMIN'), cacheRoute(60), getAllTeams);
 
 /**
  * @swagger
@@ -144,7 +145,9 @@ router.get('/:id', authorize('DISPATCHER', 'ADMIN', 'RESCUE'), getTeamById);
  *       200:
  *         description: GPS cập nhật thành công, emit socket tới Dispatcher
  */
-router.patch('/location', authorize('RESCUE'), updateLocationRules, validate, updateLocation);
+// clearCachePattern('rescue-teams') chỉ xóa cache liên quan đến đội cứu hộ,
+// không ảnh hưởng incidents hay reports — route này gọi mỗi 10 giây nên rất quan trọng
+router.patch('/location', authorize('RESCUE'), updateLocationRules, validate, clearCachePattern('rescue-teams'), updateLocation);
 
 /**
  * @swagger
@@ -172,7 +175,7 @@ router.patch('/location', authorize('RESCUE'), updateLocationRules, validate, up
  *       400:
  *         description: Không thể offline khi đang xử lý sự cố
  */
-router.patch('/availability', authorize('RESCUE'), updateAvailability);
+router.patch('/availability', authorize('RESCUE'), clearCachePattern('rescue-teams'), updateAvailability);
 
 /**
  * @swagger
@@ -199,6 +202,7 @@ router.patch('/availability', authorize('RESCUE'), updateAvailability);
  *       400:
  *         description: Đội đang BUSY hoặc sự cố đã kết thúc
  */
-router.patch('/:teamId/assign/:incidentId', authorize('DISPATCHER', 'ADMIN'), assignTeamToIncident);
+// Xóa cả rescue-teams và incidents vì phân công ảnh hưởng cả hai
+router.patch('/:teamId/assign/:incidentId', authorize('DISPATCHER', 'ADMIN'), clearCache(), assignTeamToIncident);
 
 module.exports = router;

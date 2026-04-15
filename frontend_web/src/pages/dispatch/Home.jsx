@@ -96,7 +96,8 @@ function timeAgo(date) {
 }
 
 export default function Home() {
-  const { incidents, teams, availableTeams, busyTeams, pendingIncidents, loading } = useApp();
+  const { incidents, teams, availableTeams, busyTeams, pendingIncidents, loading, personalSettings } = useApp();
+  const mapConfig = personalSettings?.mapConfig || {};
   const [selectedIncident, setSelectedIncident] = useState(null);
   const [showFilter, setShowFilter] = useState(false);
   const [filter, setFilter] = useState('ALL'); // ALL | SOS | NORMAL
@@ -143,14 +144,29 @@ export default function Home() {
 
         <div className="flex-1 relative">
           <MapContainer center={mapCenter} zoom={12} style={{ height: '100%', width: '100%' }} zoomControl={true}>
-            <TileLayer
-              attribution='&copy; OpenStreetMap'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            />
+            {mapConfig.defaultMap === 'SATELLITE' ? (
+              <TileLayer
+                attribution='&copy; <a href="https://www.esri.com/">Esri</a>'
+                url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+              />
+            ) : (
+              <TileLayer
+                attribution='&copy; OpenStreetMap'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+            )}
+            
+            {mapConfig.trafficLayer && (
+              <TileLayer
+                attribution='&copy; OpenStreetMap contributors, &copy; ODbL, BBD'
+                url="https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png"
+                opacity={0.4}
+              />
+            )}
             <MapBounds teams={teams} incidents={pendingIncidents} />
 
             {/* Rescue team markers */}
-            {teams.filter(t => t.currentLocation?.coordinates).map(team => (
+            {mapConfig.showTeams !== false && teams.filter(t => t.currentLocation?.coordinates).map(team => (
               <Marker
                 key={team._id}
                 position={[team.currentLocation.coordinates[1], team.currentLocation.coordinates[0]]}

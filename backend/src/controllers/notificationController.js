@@ -14,7 +14,7 @@ exports.getMyNotifications = async (req, res) => {
 };
 
 exports.markAsRead = async (req, res) => {
-  const notification = await Notification.findOneAndUpdate({ _id: req.params.id, recipient: req.user._id }, { isRead: true }, { new: true });
+  const notification = await Notification.findOneAndUpdate({ _id: req.params.id, recipient: req.user._id }, { isRead: true }, { returnDocument: 'after' });
   if (!notification) return res.status(404).json({ success: false, message: 'Không tìm thấy thông báo' });
   res.status(200).json({ success: true, data: notification });
 };

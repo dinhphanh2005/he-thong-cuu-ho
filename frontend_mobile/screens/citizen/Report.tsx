@@ -131,7 +131,7 @@ export default function ReportIncident({ navigation, route }: any) {
 
       const { data } = await incidentAPI.create(formData);
       Alert.alert(
-        '✅ Gửi thành công!',
+        'Gửi thành công!',
         `Mã sự cố: ${data.data.code}\n\nHệ thống đang điều phối đội cứu hộ đến vị trí của bạn.`,
         [{ text: 'OK', onPress: () => navigation.reset({ index: 0, routes: [{ name: 'CitizenTabs' }] }) }]
       );

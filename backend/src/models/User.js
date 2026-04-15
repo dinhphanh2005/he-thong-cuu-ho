@@ -70,4 +70,9 @@ userSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.passwordHash);
 };
 
+// Indexes tối ưu cho query thường dùng
+userSchema.index({ role: 1 });                    // Lọc theo role (RBAC queries)
+userSchema.index({ role: 1, isActive: 1 });       // Dashboard Admin: active users by role
+userSchema.index({ lastLogin: -1 });              // Sắp xếp phiên đăng nhập mới nhất
+
 module.exports = mongoose.model('User', userSchema);

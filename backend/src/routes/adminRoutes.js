@@ -8,10 +8,13 @@ const {
   updateRescueTeam,
   deleteRescueTeam,
   toggleSuspendTeam,
+  getTeamHistory,
   createRescueMember,
   getAllUsers,
   toggleUserActive,
   resetUserPassword,
+  updateUser,
+  deleteUser,
   triggerDailyReport,
   getDashboard,
   getSystemConfig,
@@ -183,6 +186,7 @@ router.post('/rescue-teams', createTeamRules, validate, createRescueTeam);
 router.put('/rescue-teams/:id', updateRescueTeam);
 router.delete('/rescue-teams/:id', deleteRescueTeam);
 router.patch('/rescue-teams/:id/toggle-suspend', toggleSuspendTeam);
+router.get('/rescue-teams/:id/history', getTeamHistory);
 
 /**
  * @swagger
@@ -275,6 +279,23 @@ router.get('/users', getAllUsers);
  *         description: Cập nhật trạng thái thành công
  */
 router.patch('/users/:id/toggle-active', toggleUserActive);
+
+/**
+ * @swagger
+ * /api/v1/admin/users/{id}:
+ *   put:
+ *     summary: Cập nhật thông tin tài khoản (name, phone, email)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *   delete:
+ *     summary: Xóa (vô hiệu hóa) tài khoản
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.put('/users/:id', updateUser);
+router.delete('/users/:id', deleteUser);
 
 /**
  * @swagger

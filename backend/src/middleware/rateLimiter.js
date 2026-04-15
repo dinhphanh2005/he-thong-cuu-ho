@@ -6,9 +6,8 @@ const isDev = process.env.NODE_ENV !== 'production';
  * Skip rate limiting for localhost (development / simulator testing)
  */
 const skipLocalhost = (req) => {
-  return false; // TEMPORARILY DISABLED FOR TC-12 TEST
-  // const ip = req.ip || req.connection?.remoteAddress || '';
-  // return isDev || ip === '127.0.0.1' || ip === '::1' || ip.startsWith('::ffff:127.');
+  const ip = req.ip || req.connection?.remoteAddress || '';
+  return isDev || ip === '127.0.0.1' || ip === '::1' || ip.startsWith('::ffff:127.');
 };
 
 /**

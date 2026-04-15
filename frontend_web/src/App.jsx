@@ -1,16 +1,19 @@
+import React, { Suspense } from 'react';
 import { BrowserRouter, Navigate, Outlet, Routes, Route } from 'react-router-dom';
-import Login from './pages/auth/Login';
-import FirstTimePassword from './pages/auth/FirstTimePassword';
-import Home from './pages/dispatch/Home';
-import Incidents from './pages/dispatch/Incidents';
-import Fleet from './pages/dispatch/Fleet';
-import Contacts from './pages/dispatch/Contacts';
-import Settings from './pages/dispatch/Settings';
-import AdminDashboard from './pages/admin/Dashboard';
-import AdminTeams from './pages/admin/Teams';
-import AdminUsers from './pages/admin/Users';
-import AdminReports from './pages/admin/Reports';
-import AdminSettings from './pages/admin/Settings';
+
+const Login = React.lazy(() => import('./pages/auth/Login'));
+const FirstTimePassword = React.lazy(() => import('./pages/auth/FirstTimePassword'));
+const Home = React.lazy(() => import('./pages/dispatch/Home'));
+const Incidents = React.lazy(() => import('./pages/dispatch/Incidents'));
+const Fleet = React.lazy(() => import('./pages/dispatch/Fleet'));
+const Contacts = React.lazy(() => import('./pages/dispatch/Contacts'));
+const Settings = React.lazy(() => import('./pages/dispatch/Settings'));
+const AdminDashboard = React.lazy(() => import('./pages/admin/Dashboard'));
+const AdminTeams = React.lazy(() => import('./pages/admin/Teams'));
+const AdminUsers = React.lazy(() => import('./pages/admin/Users'));
+const AdminReports = React.lazy(() => import('./pages/admin/Reports'));
+const AdminSettings = React.lazy(() => import('./pages/admin/Settings'));
+
 import DispatchLayout from './components/DispatchLayout';
 import AdminLayout from './components/AdminLayout';
 import { canAccessWebRole, getStoredUser, hasAccessToken, isPasswordChangeRequired } from './services/api';
@@ -58,33 +61,35 @@ function ChangePasswordRoute() {
 function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={<LoginRoute />} />
-        <Route path="/change-password" element={<ChangePasswordRoute />} />
+      <Suspense fallback={<div className="flex h-screen items-center justify-center p-4"><div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div></div>}>
+        <Routes>
+          <Route path="/login" element={<LoginRoute />} />
+          <Route path="/change-password" element={<ChangePasswordRoute />} />
 
-        <Route element={<ProtectedRoutes />}>
-          {/* Dispatcher Portal */}
-          <Route path="/" element={<DispatchLayout />}>
-            <Route index element={<Home />} />
-            <Route path="incidents" element={<Incidents />} />
-            <Route path="fleet" element={<Fleet />} />
-            <Route path="contacts" element={<Contacts />} />
-            <Route path="settings" element={<Settings />} />
+          <Route element={<ProtectedRoutes />}>
+            {/* Dispatcher Portal */}
+            <Route path="/" element={<DispatchLayout />}>
+              <Route index element={<Home />} />
+              <Route path="incidents" element={<Incidents />} />
+              <Route path="fleet" element={<Fleet />} />
+              <Route path="contacts" element={<Contacts />} />
+              <Route path="settings" element={<Settings />} />
+            </Route>
+
+            {/* Admin Portal */}
+            <Route path="/admin" element={<AdminLayout />}>
+              <Route index element={<AdminDashboard />} />
+              <Route path="teams" element={<AdminTeams />} />
+              <Route path="users" element={<AdminUsers />} />
+              <Route path="reports" element={<AdminReports />} />
+              <Route path="settings" element={<AdminSettings />} />
+            </Route>
           </Route>
 
-          {/* Admin Portal */}
-          <Route path="/admin" element={<AdminLayout />}>
-            <Route index element={<AdminDashboard />} />
-            <Route path="teams" element={<AdminTeams />} />
-            <Route path="users" element={<AdminUsers />} />
-            <Route path="reports" element={<AdminReports />} />
-            <Route path="settings" element={<AdminSettings />} />
-          </Route>
-        </Route>
-
-        {/* Catch-all redirect */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+          {/* Catch-all redirect */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 }

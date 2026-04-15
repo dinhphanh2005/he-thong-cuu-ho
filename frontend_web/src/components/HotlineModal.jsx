@@ -1,6 +1,37 @@
 import React, { useState } from 'react';
-import { X, Phone, MapPin, AlertTriangle, ChevronDown } from 'lucide-react';
+import { X, Phone, MapPin, AlertTriangle, ChevronDown, PhoneCall, ShieldCheck, Flame, Stethoscope } from 'lucide-react';
 import { incidentAPI } from '../services/api';
+
+// ── Số điện thoại cơ quan chức năng ─────────────────────────────────────────
+const EMERGENCY_NUMBERS = [
+  {
+    number: '113',
+    label: 'Cảnh sát',
+    sublabel: 'Tai nạn, tội phạm',
+    icon: ShieldCheck,
+    color: 'bg-blue-50 border-blue-200 text-blue-700',
+    iconColor: 'text-blue-600',
+    ringColor: 'ring-blue-200',
+  },
+  {
+    number: '114',
+    label: 'Cứu hoả',
+    sublabel: 'Cháy nổ, hỏa hoạn',
+    icon: Flame,
+    color: 'bg-orange-50 border-orange-200 text-orange-700',
+    iconColor: 'text-orange-600',
+    ringColor: 'ring-orange-200',
+  },
+  {
+    number: '115',
+    label: 'Cấp cứu',
+    sublabel: 'Y tế khẩn cấp',
+    icon: Stethoscope,
+    color: 'bg-red-50 border-red-200 text-red-700',
+    iconColor: 'text-red-600',
+    ringColor: 'ring-red-200',
+  },
+];
 
 const INCIDENT_TYPES = [
   { value: 'ACCIDENT', label: 'Tai nạn giao thông' },
@@ -19,6 +50,7 @@ const SEVERITY_OPTIONS = [
 
 export default function HotlineModal({ onClose, onSuccess }) {
   const [step, setStep] = useState(1); // 1: form, 2: success
+  const [activeTab, setActiveTab] = useState('internal'); // 'internal' | 'emergency'
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [form, setForm] = useState({
@@ -77,15 +109,77 @@ export default function HotlineModal({ onClose, onSuccess }) {
         {/* Header */}
         <div className="flex items-start justify-between p-5 border-b border-gray-100">
           <div>
-            <h3 className="font-bold text-gray-900 text-base">Tạo sự cố từ Hotline</h3>
-            <p className="text-xs text-gray-500 mt-0.5">Hệ thống sẽ tự động tìm đội cứu hộ sau khi tạo.</p>
+            <h3 className="font-bold text-gray-900 text-base">Tổng đài điều phối</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Tạo sự cố từ hotline hoặc gọi cơ quan chức năng.</p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1">
             <X size={20} />
           </button>
         </div>
 
-        {step === 1 ? (
+        {/* Tab switcher */}
+        <div className="flex border-b border-gray-100">
+          <button
+            onClick={() => setActiveTab('internal')}
+            className={`flex-1 py-3 text-xs font-bold transition-colors ${
+              activeTab === 'internal'
+                ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/40'
+                : 'text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            <Phone size={13} className="inline mr-1.5 mb-0.5" />
+            Tạo sự cố nội bộ
+          </button>
+          <button
+            onClick={() => setActiveTab('emergency')}
+            className={`flex-1 py-3 text-xs font-bold transition-colors ${
+              activeTab === 'emergency'
+                ? 'text-red-600 border-b-2 border-red-500 bg-red-50/40'
+                : 'text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            <PhoneCall size={13} className="inline mr-1.5 mb-0.5" />
+            Gọi cơ quan chức năng
+          </button>
+        </div>
+
+        {/* Tab: Gọi cơ quan chức năng */}
+        {activeTab === 'emergency' && (
+          <div className="p-5 space-y-4">
+            <p className="text-xs text-gray-500 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+              Nhấn vào số điện thoại để gọi trực tiếp đến cơ quan chức năng tương ứng.
+            </p>
+            {EMERGENCY_NUMBERS.map((item) => {
+              const Icon = item.icon;
+              return (
+                <a
+                  key={item.number}
+                  href={`tel:${item.number}`}
+                  className={`flex items-center gap-4 p-4 rounded-2xl border-2 cursor-pointer hover:ring-4 transition-all ${item.color} ${item.ringColor} no-underline`}
+                >
+                  <div className={`w-12 h-12 rounded-xl bg-white shadow-sm flex items-center justify-center shrink-0`}>
+                    <Icon size={22} className={item.iconColor} />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-2xl font-black">{item.number}</span>
+                      <span className="text-sm font-bold">{item.label}</span>
+                    </div>
+                    <p className="text-xs mt-0.5 opacity-70">{item.sublabel}</p>
+                  </div>
+                  <PhoneCall size={20} className="shrink-0 opacity-60" />
+                </a>
+              );
+            })}
+            <div className="pt-2 border-t border-gray-100">
+              <p className="text-[11px] text-gray-400 text-center">
+                Sau khi gọi xong, hãy <button onClick={() => setActiveTab('internal')} className="text-blue-500 font-bold underline">tạo sự cố nội bộ</button> để lưu vào hệ thống.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'internal' && step === 1 ? (
           <div className="p-5 space-y-5">
             {/* Caller Info */}
             <div>
@@ -202,7 +296,7 @@ export default function HotlineModal({ onClose, onSuccess }) {
               </button>
             </div>
           </div>
-        ) : (
+        ) : activeTab === 'internal' && step === 2 ? (
           /* Success */
           <div className="p-8 text-center">
             <div className="w-16 h-16 rounded-full bg-green-500 flex items-center justify-center mx-auto mb-4">
@@ -217,7 +311,7 @@ export default function HotlineModal({ onClose, onSuccess }) {
               Thoát
             </button>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

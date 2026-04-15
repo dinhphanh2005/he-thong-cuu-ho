@@ -50,8 +50,8 @@ export default function SOS({ navigation }: any) {
       const { longitude, latitude } = location.coords;
       const { data } = await incidentAPI.sos([longitude, latitude]);
       Alert.alert(
-        'SOS Đã Gửi!',
-        `Mã sự cố: ${data.data.code}\n\nĐội cứu hộ đang trên đường đến vị trí của bạn.`,
+        'Gửi SOS thành công!',
+        `Mã sự cố: ${data.data.code}\n\nĐội cứu hộ đang được điều động khẩn cấp!`,
         [{ text: 'OK', onPress: () => navigation.reset({ index: 0, routes: [{ name: 'CitizenTabs' }] }) }]
       );
     } catch (error: any) {

@@ -105,35 +105,51 @@ const processAutoAssign = async (incidentId, io) => {
       await addToAssignQueue(incident._id.toString(), timeoutSec * 1000 + 1000);
       return { message: `Đã gửi offer tới ${team.name}` };
     } else {
-      // Không tìm được đội → Kiểm tra pool cạn kiệt
-      const RescueTeam = require('../models/RescueTeam');
-      const remainingTeamsCount = await RescueTeam.countDocuments({
-        _id: { $nin: incident.rejectedTeams || [] }
-      });
+      // Không tìm được đội trong bán kính hiện tại
+      // Tăng assignmentAttempts để lần thử tiếp sẽ mở rộng bán kính (1x → 2x → 3x)
+      const currentAttempts = incident.assignmentAttempts || 0;
+      const config2 = await SystemConfig.getSingleton();
+      const baseRadius = config2.algoSettings?.searchRadiusKm || 5;
+      const nextRadius = baseRadius * (currentAttempts + 2); // +2 vì +1 là lần này, +1 nữa là lần sau
 
-      if (remainingTeamsCount === 0) {
+      if (currentAttempts >= 3) {
+        // Đã mở rộng tối đa 3 lần, leo thang
         incident.isEscalated = true;
         incident.timeline.push({
           status: 'PENDING',
           updatedBy: null,
-          note: 'Tự động leo thang: Tất cả các đội phù hợp đã từ chối hoặc không có đội nào khác.',
+          note: `Tự động leo thang: Đã quét bán kính ${baseRadius * (currentAttempts + 1)}km nhưng không tìm được đội phù hợp.`,
         });
         await incident.save();
         if (io) {
           io.to('dispatchers').emit('incident:escalated', {
             incidentId: incident._id,
             code: incident.code,
-            message: 'Tất cả đội đã từ chối hoặc không có đội khả thi, cần xử lý thủ công!',
+            message: `Đã quét bán kính ${baseRadius * (currentAttempts + 1)}km, không có đội khả thi!`,
           });
           const { emitIncidentUpdated } = require('../services/socketService');
           emitIncidentUpdated(io, incident._id, { status: 'PENDING', isEscalated: true });
         }
-        return { message: 'Pool đội cứu hộ đã cạn kiệt, leo thang' };
+        return { message: `Không tìm được đội sau ${currentAttempts + 1} lần quét, leo thang` };
       }
 
-      // Thử lại sau 30s
-      await addToAssignQueue(incident._id.toString(), 30000);
-      return { message: 'Không tìm được đội phù hợp lúc này, sẽ thử lại sau 30s' };
+      // Tăng attempts để lần sau mở rộng bán kính
+      incident.assignmentAttempts = currentAttempts + 1;
+      incident.timeline.push({
+        status: 'PENDING',
+        updatedBy: null,
+        note: `Không tìm được đội trong R=${baseRadius * (currentAttempts + 1)}km. Sẽ mở rộng lên R=${nextRadius}km và thử lại.`,
+      });
+      await incident.save();
+
+      if (io) {
+        const { emitIncidentUpdated } = require('../services/socketService');
+        emitIncidentUpdated(io, incident._id, { status: 'PENDING', assignmentAttempts: incident.assignmentAttempts });
+      }
+
+      // Thử lại ngay sau 5s với bán kính đã mở rộng
+      await addToAssignQueue(incident._id.toString(), 5000);
+      return { message: `Không tìm được đội trong R=${baseRadius * (currentAttempts + 1)}km, thử lại với R=${nextRadius}km sau 5s` };
     }
   }
 
@@ -165,6 +181,7 @@ const initAutoAssignQueue = (io) => {
   const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
 
   assignQueue = new Bull(QUEUE_NAME, redisUrl, {
+    redis: { maxRetriesPerRequest: null },
     defaultJobOptions: {
       removeOnComplete: 100,
       removeOnFail: 50,

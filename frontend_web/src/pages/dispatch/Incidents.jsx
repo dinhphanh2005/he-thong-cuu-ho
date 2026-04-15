@@ -91,7 +91,7 @@ export default function Incidents() {
   // Live counts
   const counts = useMemo(() => ({
     ALL: incidents.length,
-    PENDING: incidents.filter(i => i.status === 'PENDING').length,
+    PENDING: incidents.filter(i => ['PENDING', 'OFFERING'].includes(i.status)).length,
     ACTIVE: incidents.filter(i => ['ASSIGNED', 'ARRIVED', 'PROCESSING'].includes(i.status)).length,
     COMPLETED: incidents.filter(i => i.status === 'COMPLETED').length,
   }), [incidents]);
@@ -99,8 +99,8 @@ export default function Incidents() {
   // Filtered + sorted list
   const filtered = useMemo(() => {
     let list = incidents;
-    if (activeFilter === 'PENDING') list = list.filter(i => i.status === 'PENDING');
-    else if (activeFilter === 'ACTIVE') list = list.filter(i => ['ASSIGNED', 'ARRIVED', 'PROCESSING', 'OFFERING'].includes(i.status));
+    if (activeFilter === 'PENDING') list = list.filter(i => ['PENDING', 'OFFERING'].includes(i.status));
+    else if (activeFilter === 'ACTIVE') list = list.filter(i => ['ASSIGNED', 'ARRIVED', 'PROCESSING'].includes(i.status));
     else if (activeFilter === 'COMPLETED') list = list.filter(i => i.status === 'COMPLETED');
 
     if (search.trim()) {
@@ -113,10 +113,26 @@ export default function Incidents() {
       );
     }
 
-    // Newest first always; CRITICAL incidents bubble up within same time window
     return [...list].sort((a, b) => {
+      const getPriority = (inc) => {
+        const isDone = ['COMPLETED', 'CANCELLED', 'HANDLED_BY_EXTERNAL'].includes(inc.status);
+        if (isDone) return 4; // Lowest priority
+        
+        const pending = inc.status === 'PENDING';
+        if (pending && isSOS(inc)) return 1; // SOS pending is highest
+        if (pending) return 2; // Pending normal
+        
+        return 3; // Processing/assigned
+      };
+
+      const pA = getPriority(a);
+      const pB = getPriority(b);
+      
+      if (pA !== pB) return pA - pB;
+
       if (a.severity === 'CRITICAL' && b.severity !== 'CRITICAL') return -1;
       if (b.severity === 'CRITICAL' && a.severity !== 'CRITICAL') return 1;
+      
       return new Date(b.createdAt) - new Date(a.createdAt);
     });
   }, [incidents, activeFilter, search]);

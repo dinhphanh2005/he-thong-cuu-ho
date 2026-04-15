@@ -4,12 +4,13 @@ import { MapPin, AlertCircle, Users, Phone, Search, Bell, Settings as SettingsIc
 import { AppProvider, useApp } from '../context/AppContext';
 import { authAPI, clearAuth, getStoredUser } from '../services/api';
 import { disconnectSocket } from '../services/socket';
+import ServerStatusBanner from './ServerStatusBanner';
+import MaintenancePage from './MaintenancePage';
 
 // ── Sidebar ────────────────────────────────────────────────────────────────────
 function Sidebar() {
   const navigate = useNavigate();
-  const { pendingCount, config } = useApp();
-  const user = getStoredUser();
+  const { pendingCount, config, user } = useApp();
 
   const menuItems = [
     { name: 'Bản đồ trực tiếp', icon: MapPin, path: '/', exact: true },
@@ -66,36 +67,42 @@ function Sidebar() {
       </nav>
 
       {/* User Footer */}
-      <div className="p-4 border-t border-gray-100 shrink-0">
-        <div className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-lg transition-colors">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-gray-200 overflow-hidden shrink-0">
+      <div className="mt-auto p-4 border-t border-gray-100">
+        <div className="bg-gray-50/50 rounded-2xl p-3 flex items-center justify-between group transition-all hover:bg-gray-50">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-white shadow-sm border border-gray-100 overflow-hidden shrink-0">
               <img
-                src={`https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || 'Dispatcher')}&background=random`}
+                src={`https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || 'Dispatcher')}&background=F1C40F&color=333&bold=true`}
                 alt="Avatar"
                 className="w-full h-full object-cover"
               />
             </div>
-            <div className="flex-1 min-w-0 text-left">
-              <p className="text-sm font-bold text-gray-900 truncate">{user?.name || 'Điều phối viên'}</p>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-gray-900 truncate tracking-tight">{user?.name || 'Điều phối viên'}</p>
               <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="w-2 h-2 rounded-full bg-green-500" />
-                <p className="text-xs font-medium text-gray-500">Điều phối viên</p>
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Trực tuyến</p>
               </div>
             </div>
           </div>
+          
           <div className="flex items-center gap-1">
             <NavLink
               to="/settings"
               className={({ isActive }) =>
-                `p-2 rounded-lg transition-colors ${isActive ? 'bg-blue-50 text-blue-600' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`
+                `p-2 rounded-xl transition-all duration-200 ${
+                  isActive 
+                    ? 'bg-blue-600 text-white shadow-md shadow-blue-100 scale-110' 
+                    : 'text-gray-400 hover:text-blue-600 hover:bg-blue-50'
+                }`
               }
+              title="Cài đặt"
             >
               <SettingsIcon size={18} />
             </NavLink>
             <button
               onClick={handleLogout}
-              className="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+              className="p-2 rounded-xl text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all duration-200"
               title="Đăng xuất"
             >
               <LogOut size={18} />
@@ -156,16 +163,31 @@ function Header() {
 
 // ── Layout ─────────────────────────────────────────────────────────────────────
 function LayoutInner() {
+  const { isMaintenanceMode, isServerOffline, config } = useApp();
+
+  // Dispatcher thấy trang bảo trì khi admin bật maintenance mode
+  if (isMaintenanceMode) {
+    return <MaintenancePage systemName={config?.systemName} />;
+  }
+
   return (
-    <div className="flex h-screen bg-[#F5F7FA] overflow-hidden">
-      <Sidebar />
-      <div className="flex-1 flex flex-col ml-64 overflow-hidden">
-        <Header />
-        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-[#F8F9FA] p-6">
-          <Outlet />
-        </main>
+    <>
+      {/* Banner mất kết nối — hiển thị phía trên cùng */}
+      <ServerStatusBanner isOffline={isServerOffline} />
+
+      <div
+        className="flex h-screen bg-[#F5F7FA] overflow-hidden"
+        style={{ paddingTop: isServerOffline ? '36px' : '0' }}
+      >
+        <Sidebar />
+        <div className="flex-1 flex flex-col ml-64 overflow-hidden">
+          <Header />
+          <main className="flex-1 overflow-x-hidden overflow-y-auto bg-[#F8F9FA] p-6">
+            <Outlet />
+          </main>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 

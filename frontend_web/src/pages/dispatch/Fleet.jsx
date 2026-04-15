@@ -1,9 +1,173 @@
-import React, { useMemo, useState } from 'react';
-import { MapContainer, TileLayer, CircleMarker, Popup } from 'react-leaflet';
+import React, { useMemo, useState, useEffect } from 'react';
+import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import { ChevronRight, MapPin, MessageSquare, Users, Wrench } from 'lucide-react';
+import { ChevronRight, MapPin, MessageSquare, Users, Wrench, X, Navigation, ExternalLink, Clock, Wifi } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
+
+// ── FlyTo helper — tự động căn map về tọa độ đội ────────────────────────────
+function FlyToCenter({ center, zoom = 15 }) {
+  const map = useMap();
+  useEffect(() => {
+    if (center) map.flyTo(center, zoom, { animate: true, duration: 0.8 });
+  }, [center, zoom, map]);
+  return null;
+}
+
+// ── Location Modal — bản đồ lớn centered vào đội cứu hộ ─────────────────────
+function LocationModal({ team, onClose }) {
+  const coordinates = team?.currentLocation?.coordinates || [];
+  const hasGPS = coordinates.length === 2;
+  const center = hasGPS ? [coordinates[1], coordinates[0]] : [21.028511, 105.804817];
+  const statusMeta = STATUS_META[team?.status] || STATUS_META.OFFLINE;
+
+  // Tính thời gian GPS cũ bao lâu
+  const gpsAge = team?.lastLocationUpdate
+    ? Math.round((Date.now() - new Date(team.lastLocationUpdate)) / 60000)
+    : null;
+  const isStale = gpsAge !== null && gpsAge > 10; // Stale nếu > 10 phút
+
+  const googleMapsUrl = hasGPS
+    ? `https://www.google.com/maps?q=${coordinates[1]},${coordinates[0]}&z=16`
+    : null;
+
+  // Đóng khi nhấn Escape
+  useEffect(() => {
+    const handler = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <div className="bg-white rounded-[28px] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col"
+        style={{ maxHeight: '85vh' }}>
+
+        {/* Header */}
+        <div className="flex items-start justify-between px-6 py-4 border-b border-gray-100 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${statusMeta.bgClass}`}>
+              <Navigation size={16} className={statusMeta.textClass} />
+            </div>
+            <div>
+              <h3 className="font-black text-gray-900 text-base leading-tight">{team.name}</h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {team.code} • {team.zone || 'Chưa gán khu vực'}
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose}
+            className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-all">
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Info bar */}
+        <div className="flex items-center gap-6 px-6 py-3 bg-gray-50 border-b border-gray-100 shrink-0 flex-wrap">
+          {/* Status */}
+          <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold ${statusMeta.bgClass} ${statusMeta.textClass}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${statusMeta.dotClass}`} />
+            {statusMeta.label}
+          </span>
+
+          {/* GPS coords */}
+          {hasGPS ? (
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-700">
+              <MapPin size={13} className="text-blue-500" />
+              {coordinates[1].toFixed(5)}, {coordinates[0].toFixed(5)}
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-red-500">
+              <Wrench size={13} /> Chưa có GPS
+            </span>
+          )}
+
+          {/* GPS freshness */}
+          {gpsAge !== null && (
+            <span className={`flex items-center gap-1.5 text-xs font-semibold ${isStale ? 'text-amber-600' : 'text-green-600'}`}>
+              {isStale ? <Wifi size={13} className="opacity-50" /> : <Wifi size={13} />}
+              {gpsAge < 1 ? 'Vừa cập nhật' : `Cập nhật ${gpsAge} phút trước`}
+              {isStale && ' ⚠'}
+            </span>
+          )}
+
+          {/* Open in Google Maps */}
+          {googleMapsUrl && (
+            <a href={googleMapsUrl} target="_blank" rel="noopener noreferrer"
+              className="ml-auto flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-800 transition-colors"
+              onClick={e => e.stopPropagation()}>
+              <ExternalLink size={13} />
+              Mở Google Maps
+            </a>
+          )}
+        </div>
+
+        {/* Map */}
+        <div className="flex-1 relative" style={{ minHeight: '380px' }}>
+          {hasGPS ? (
+            <MapContainer
+              center={center}
+              zoom={15}
+              style={{ height: '100%', width: '100%', minHeight: '380px' }}
+              zoomControl={true}
+            >
+              <TileLayer
+                attribution="&copy; OpenStreetMap"
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+              <FlyToCenter center={center} zoom={15} />
+
+              {/* Marker chính — vị trí đội */}
+              <CircleMarker
+                center={center}
+                radius={12}
+                pathOptions={{ color: '#496FC0', fillColor: '#496FC0', fillOpacity: 0.9, weight: 3 }}
+              >
+                <Popup>
+                  <div className="text-sm">
+                    <p className="font-bold text-gray-900">{team.name}</p>
+                    <p className="text-gray-500 text-xs mt-1">{team.code} • {team.zone}</p>
+                    <p className={`font-semibold mt-1 text-xs ${
+                      team.status === 'AVAILABLE' ? 'text-green-600' :
+                      team.status === 'BUSY' ? 'text-yellow-600' : 'text-gray-500'
+                    }`}>{statusMeta.label}</p>
+                  </div>
+                </Popup>
+              </CircleMarker>
+
+              {/* Vòng tròn bán kính phục vụ (~1km) */}
+              <CircleMarker
+                center={center}
+                radius={60}
+                pathOptions={{ color: '#496FC0', fillColor: '#496FC0', fillOpacity: 0.05, weight: 1, dashArray: '4 4' }}
+              />
+            </MapContainer>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full bg-gray-50 gap-3 py-16">
+              <div className="w-16 h-16 rounded-full bg-gray-200 flex items-center justify-center">
+                <Wrench size={28} className="text-gray-400" />
+              </div>
+              <p className="text-gray-500 font-semibold text-sm">Đội chưa có dữ liệu GPS</p>
+              <p className="text-gray-400 text-xs max-w-xs text-center">
+                Yêu cầu thành viên mở App cứu hộ và bật GPS để cập nhật vị trí.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        {isStale && hasGPS && (
+          <div className="px-6 py-3 bg-amber-50 border-t border-amber-100 shrink-0">
+            <p className="text-xs text-amber-700 font-semibold flex items-center gap-2">
+              <Clock size={13} />
+              Dữ liệu GPS đã cũ ({gpsAge} phút) — vị trí thực tế có thể khác. Liên hệ đội để xác nhận.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 const STATUS_META = {
   AVAILABLE: {
@@ -23,6 +187,20 @@ const STATUS_META = {
     textClass: 'text-gray-500',
     bgClass: 'bg-gray-100',
     dotClass: 'bg-gray-400',
+  },
+  // FIX BUG-03: Thêm SUSPENDED — khi Admin đình chỉ đội
+  SUSPENDED: {
+    label: 'Đang đình chỉ',
+    textClass: 'text-red-500',
+    bgClass: 'bg-red-50',
+    dotClass: 'bg-red-400',
+  },
+  // FIX: Thêm PROPOSED (trạng thái trung gian nội bộ)
+  PROPOSED: {
+    label: 'Đang đề xuất',
+    textClass: 'text-blue-500',
+    bgClass: 'bg-blue-50',
+    dotClass: 'bg-blue-400',
   },
 };
 
@@ -53,10 +231,11 @@ function formatLastUpdate(value) {
   });
 }
 
-function TeamDetailPanel({ team, onClose }) {
+function TeamDetailPanel({ team, onClose, onOpenLocation }) {
   const navigate = useNavigate();
   const coordinates = team?.currentLocation?.coordinates || [];
-  const mapCenter = coordinates.length === 2
+  const hasGPS = coordinates.length === 2;
+  const mapCenter = hasGPS
     ? [coordinates[1], coordinates[0]]
     : [21.028511, 105.804817];
 
@@ -96,18 +275,74 @@ function TeamDetailPanel({ team, onClose }) {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-5 mt-4 h-40 rounded-xl overflow-hidden bg-gray-100 border border-gray-200">
-          <MapContainer center={mapCenter} zoom={13} style={{ height: '100%', width: '100%' }}>
-            <TileLayer
-              attribution="&copy; OpenStreetMap"
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            />
-            {coordinates.length === 2 && (
-              <CircleMarker center={mapCenter} radius={8} pathOptions={{ color: '#496FC0', fillColor: '#496FC0', fillOpacity: 0.95 }}>
-                <Popup>{team.name}</Popup>
-              </CircleMarker>
-            )}
-          </MapContainer>
+        {/* ── Mini map ─────────────────────────────────────────────────── */}
+        <div className="mx-5 mt-4 rounded-xl overflow-hidden bg-gray-100 border border-gray-200 relative"
+          style={{ height: '160px' }}>
+
+          {hasGPS ? (
+            <>
+              {/* key={team._id} bắt buộc — React-Leaflet v3 không cập nhật
+                  center prop sau khi khởi tạo. key khác nhau giữa các team
+                  sẽ force unmount + remount để map đúng vị trí.              */}
+              <MapContainer
+                key={team._id}
+                center={mapCenter}
+                zoom={15}
+                style={{ height: '100%', width: '100%' }}
+                zoomControl={false}
+                attributionControl={false}
+                dragging={false}
+                scrollWheelZoom={false}
+                doubleClickZoom={false}
+              >
+                <TileLayer
+                  url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+                />
+                {/* FlyToCenter đảm bảo map luôn đúng tọa độ ngay cả khi React giữ instance cũ */}
+                <FlyToCenter center={mapCenter} zoom={15} />
+
+                {/* Marker vị trí đội */}
+                <CircleMarker
+                  center={mapCenter}
+                  radius={10}
+                  pathOptions={{ color: '#496FC0', fillColor: '#496FC0', fillOpacity: 1, weight: 3 }}
+                >
+                  <Popup>{team.name}</Popup>
+                </CircleMarker>
+
+                {/* Vòng tròn bán kính mờ */}
+                <CircleMarker
+                  center={mapCenter}
+                  radius={40}
+                  pathOptions={{ color: '#496FC0', fillColor: '#496FC0', fillOpacity: 0.08, weight: 1 }}
+                />
+              </MapContainer>
+
+              {/* Overlay: nút phóng to bản đồ */}
+              <button
+                onClick={() => onOpenLocation(team)}
+                className="absolute bottom-2 right-2 z-[400] bg-white/90 hover:bg-white backdrop-blur-sm border border-gray-200 shadow-md rounded-lg px-2.5 py-1.5 flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700 transition-all"
+                title="Xem bản đồ đầy đủ"
+              >
+                <Navigation size={12} />
+                Phóng to
+              </button>
+
+              {/* Tọa độ GPS */}
+              <div className="absolute top-2 left-2 z-[400] bg-white/85 backdrop-blur-sm border border-gray-200 rounded-lg px-2 py-1">
+                <p className="text-[10px] font-bold text-gray-600">
+                  {coordinates[1].toFixed(4)}, {coordinates[0].toFixed(4)}
+                </p>
+              </div>
+            </>
+          ) : (
+            /* Không có GPS */
+            <div className="h-full flex flex-col items-center justify-center gap-2 bg-gray-50">
+              <Wrench size={22} className="text-gray-300" />
+              <p className="text-xs font-bold text-gray-400">Chưa có dữ liệu GPS</p>
+              <p className="text-[10px] text-gray-400">Yêu cầu đội mở App và bật GPS</p>
+            </div>
+          )}
         </div>
 
         <div className="px-5 py-4 space-y-3">
@@ -185,6 +420,7 @@ export default function Fleet() {
   const { teams, loading } = useApp();
   const [activeFilter, setActiveFilter] = useState('ALL');
   const [selectedTeamId, setSelectedTeamId] = useState(null);
+  const [locationTeam, setLocationTeam] = useState(null); // Đội đang xem vị trí
 
   const filters = useMemo(() => {
     const availableCount = teams.filter((team) => team.status === 'AVAILABLE').length;
@@ -294,14 +530,33 @@ export default function Fleet() {
                   </div>
 
                   <div className="border-t border-gray-100 grid grid-cols-2">
+                    {/* Thành viên — click để mở detail panel */}
                     <div className="flex items-center justify-center gap-2 py-3.5 text-sm font-semibold text-gray-700">
                       <Users size={16} />
                       {members.length} thành viên
                     </div>
-                    <div className="flex items-center justify-center gap-2 py-3.5 text-sm font-semibold text-gray-700 border-l border-gray-100">
-                      {coordinates.length === 2 ? <MapPin size={16} /> : <Wrench size={16} />}
-                      {coordinates.length === 2 ? 'Vị trí' : 'Chưa có GPS'}
-                    </div>
+
+                    {/* Vị trí — button riêng, stopPropagation để không trigger card click */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation(); // Không mở TeamDetailPanel
+                        setLocationTeam(team);
+                      }}
+                      className={`flex items-center justify-center gap-2 py-3.5 text-sm font-semibold border-l border-gray-100 transition-colors ${
+                        coordinates.length === 2
+                          ? 'text-blue-600 hover:bg-blue-50 hover:text-blue-700 cursor-pointer'
+                          : 'text-gray-400 cursor-default'
+                      }`}
+                      title={coordinates.length === 2
+                        ? `Xem vị trí ${team.name} trên bản đồ`
+                        : 'Đội chưa có GPS'}
+                    >
+                      {coordinates.length === 2
+                        ? <><MapPin size={15} className="shrink-0" /> Xem vị trí</>
+                        : <><Wrench size={15} className="shrink-0 opacity-50" /> Chưa có GPS</>
+                      }
+                    </button>
                   </div>
                 </button>
               );
@@ -311,7 +566,19 @@ export default function Fleet() {
       </div>
 
       {selectedTeam && (
-        <TeamDetailPanel team={selectedTeam} onClose={() => setSelectedTeamId(null)} />
+        <TeamDetailPanel
+          team={selectedTeam}
+          onClose={() => setSelectedTeamId(null)}
+          onOpenLocation={(t) => setLocationTeam(t)}
+        />
+      )}
+
+      {/* Modal xem vị trí đội cứu hộ trên bản đồ lớn */}
+      {locationTeam && (
+        <LocationModal
+          team={locationTeam}
+          onClose={() => setLocationTeam(null)}
+        />
       )}
     </div>
   );

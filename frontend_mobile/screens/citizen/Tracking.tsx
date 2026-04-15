@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  Dimensions, ActivityIndicator, Image, ScrollView
+  Dimensions, ActivityIndicator, Image, ScrollView, Alert
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -76,6 +76,12 @@ export default function Tracking({ route, navigation }: any) {
           fetchDetail();
         }
       });
+
+      socket.on('incident:status-change', (data: any) => {
+        if (data.message) {
+          Alert.alert('Thông báo sự cố', data.message);
+        }
+      });
     }
 
     return () => {
@@ -83,6 +89,7 @@ export default function Tracking({ route, navigation }: any) {
         socket.emit('track:leave', incidentId);
         socket.off('rescue:location');
         socket.off('incident:updated');
+        socket.off('incident:status-change');
       }
     };
   }, [incidentId]);
@@ -175,6 +182,39 @@ export default function Tracking({ route, navigation }: any) {
           <Text style={[styles.statusText, { color: currentStatus.color }]}>{currentStatus.label}</Text>
         </View>
       </SafeAreaView>
+
+      {/* Nút định vị lại — fit lại bản đồ về đội cứu hộ + điểm sự cố */}
+      <TouchableOpacity
+        style={{
+          position: 'absolute',
+          right: 16,
+          top: 140,
+          width: 44,
+          height: 44,
+          borderRadius: 22,
+          backgroundColor: 'white',
+          alignItems: 'center',
+          justifyContent: 'center',
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.2,
+          shadowRadius: 4,
+          elevation: 5,
+          zIndex: 10,
+        }}
+        onPress={() => {
+          if (mapRef.current) {
+            const markers = [incidentCoords];
+            if (rescueLocation) markers.push(rescueLocation);
+            mapRef.current.fitToCoordinates(markers, {
+              edgePadding: { top: 100, right: 100, bottom: 300, left: 100 },
+              animated: true,
+            });
+          }
+        }}
+      >
+        <Ionicons name="locate" size={22} color={COLORS.primary} />
+      </TouchableOpacity>
 
       {/* Bottom Information Sheet */}
       <View style={styles.bottomSheet}>

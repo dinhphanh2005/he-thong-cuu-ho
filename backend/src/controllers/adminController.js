@@ -59,7 +59,7 @@ exports.updateRescueTeam = async (req, res) => {
   if (capabilities) update.capabilities = capabilities;
   if (coordinates) update['currentLocation.coordinates'] = coordinates;
 
-  const team = await RescueTeam.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true });
+  const team = await RescueTeam.findByIdAndUpdate(req.params.id, update, { returnDocument: 'after', runValidators: true });
   if (!team) return res.status(404).json({ success: false, message: 'Không tìm thấy đội cứu hộ' });
 
   res.status(200).json({ success: true, data: team });
@@ -97,6 +97,20 @@ exports.toggleSuspendTeam = async (req, res) => {
     message: `Đội đã ${team.status === 'SUSPENDED' ? 'bị đình chỉ' : 'hoạt động trở lại'}`,
     data: team
   });
+};
+
+exports.getTeamHistory = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const history = await Incident.find({ 'assignedTeam': id })
+      .select('code type status location createdAt completedAt')
+      .sort('-createdAt')
+      .lean();
+      
+    res.status(200).json({ success: true, count: history.length, data: history });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Lỗi khi trích xuất lịch sử', error: err.message });
+  }
 };
 
 // ==================== RESCUE MEMBERS ====================
@@ -186,6 +200,78 @@ exports.resetUserPassword = async (req, res) => {
   res.status(200).json({ success: true, message: 'Reset mật khẩu thành công', data: { name: user.name, defaultPassword } });
 };
 
+/**
+ * @desc    Cập nhật thông tin tài khoản (name, phone, email)
+ * @route   PUT /api/v1/admin/users/:id
+ * @access  Admin only
+ */
+exports.updateUser = async (req, res) => {
+  const { name, phone, email } = req.body;
+  const user = await User.findById(req.params.id);
+  if (!user) return res.status(404).json({ success: false, message: 'Không tìm thấy tài khoản' });
+  if (user.role === 'ADMIN') return res.status(400).json({ success: false, message: 'Không thể sửa tài khoản Admin qua endpoint này' });
+
+  // Kiểm tra trùng phone/email với user khác
+  if (phone && phone !== user.phone) {
+    const dup = await User.findOne({ phone, _id: { $ne: user._id } });
+    if (dup) return res.status(400).json({ success: false, message: 'Số điện thoại đã được dùng bởi tài khoản khác' });
+    user.phone = phone;
+  }
+  if (email && email !== user.email) {
+    const dup = await User.findOne({ email, _id: { $ne: user._id } });
+    if (dup) return res.status(400).json({ success: false, message: 'Email đã được dùng bởi tài khoản khác' });
+    user.email = email;
+  }
+  if (name) user.name = name.trim();
+
+  await user.save({ validateBeforeSave: true });
+  res.status(200).json({ success: true, message: 'Cập nhật tài khoản thành công', data: user });
+};
+
+/**
+ * @desc    Xóa tài khoản (soft delete — vô hiệu hóa vĩnh viễn)
+ * @route   DELETE /api/v1/admin/users/:id
+ * @access  Admin only
+ */
+exports.deleteUser = async (req, res) => {
+  const user = await User.findById(req.params.id);
+  if (!user) return res.status(404).json({ success: false, message: 'Không tìm thấy tài khoản' });
+  if (user.role === 'ADMIN') return res.status(400).json({ success: false, message: 'Không thể xóa tài khoản Admin' });
+
+  // Kiểm tra rescue đang xử lý sự cố
+  if (user.role === 'RESCUE') {
+    const activeIncident = await Incident.findOne({
+      assignedTeam: user.rescueTeam,
+      status: { $in: ['ASSIGNED', 'ARRIVED', 'PROCESSING'] },
+    });
+    if (activeIncident) {
+      return res.status(400).json({
+        success: false,
+        message: 'Không thể xóa — Nhân viên này đang tham gia xử lý sự cố',
+      });
+    }
+  }
+
+  // Soft delete: vô hiệu hóa + xóa token để buộc đăng xuất
+  user.isActive = false;
+  user.refreshToken = null;
+  user.currentSessionId = null;
+  user.email = `deleted_${Date.now()}_${user.email}`; // Free up email slot
+  user.phone = `00000${Date.now().toString().slice(-7)}`; // Free up phone slot
+  await user.save({ validateBeforeSave: false });
+
+  // Nếu là RESCUE, gỡ khỏi team
+  if (user.role === 'RESCUE' && user.rescueTeam) {
+    const RescueTeam = require('../models/RescueTeam');
+    await RescueTeam.findByIdAndUpdate(user.rescueTeam, {
+      $pull: { members: { userId: user._id } },
+    });
+    await recalculateTeamStatus(user.rescueTeam);
+  }
+
+  res.status(200).json({ success: true, message: 'Đã vô hiệu hóa và xóa tài khoản' });
+};
+
 // ==================== DASHBOARD & REPORTS ====================
 
 exports.getDashboard = async (req, res) => {
@@ -224,6 +310,9 @@ exports.getSystemConfig = async (req, res) => {
 exports.updateSystemConfig = async (req, res) => {
   const config = await SystemConfig.getSingleton();
   
+  // Track if algoSettings changed so we know whether to re-queue PENDING incidents
+  const algoSettingsBefore = JSON.stringify(config.algoSettings);
+
   // Update fields from request body selectively to avoid overwriting with undefined
   const updates = req.body;
   Object.keys(updates).forEach(key => {
@@ -238,6 +327,31 @@ exports.updateSystemConfig = async (req, res) => {
   const io = req.app.get('io');
   if (io) {
     io.emit('system:config-updated', config);
+  }
+
+  // Nếu algoSettings thay đổi (bán kính, timeout, v.v.) → kick lại tất cả sự cố đang PENDING
+  // để áp dụng cấu hình mới ngay lập tức (không cần đợi timeout cũ)
+  const algoSettingsAfter = JSON.stringify(config.algoSettings);
+  if (algoSettingsBefore !== algoSettingsAfter && config.algoSettings?.isAutoAssignEnabled) {
+    try {
+      const { addToAssignQueue } = require('../jobs/autoAssignJob');
+      const pendingIncidents = await Incident.find({
+        status: { $in: ['PENDING'] },
+        isEscalated: { $ne: true },
+      }).select('_id code assignmentAttempts').limit(50);
+
+      if (pendingIncidents.length > 0) {
+        const logger = require('../utils/logger');
+        logger.info(`[Config] algoSettings changed → Re-queue ${pendingIncidents.length} PENDING incidents với config mới`);
+        for (const inc of pendingIncidents) {
+          // Delay nhỏ để tránh hammer cùng lúc
+          await addToAssignQueue(inc._id.toString(), 200);
+        }
+      }
+    } catch (err) {
+      const logger = require('../utils/logger');
+      logger.error(`[Config] Re-queue thất bại: ${err.message}`);
+    }
   }
 
   res.status(200).json({ success: true, message: 'Cập nhật cấu hình thành công', data: config });

@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cuuho_backend
+    restart: always
+    env_file: ./backend/.env.production
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      - redis
+    # Nếu dùng MongoDB Atlas thay vì local MongoDB thì comment depend_on dòng dưới
+    #  - mongodb
+
+  frontend:
+    build:
+      context: ./frontend_web
+      dockerfile: Dockerfile
+    container_name: cuuho_frontend_build
+    # Container này chỉ build nội dung ra thư mục dist và Nginx sẽ đọc thư mục dist đó
+
+  nginx:
+    image: nginx:alpine
+    container_name: cuuho_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - backend
+      - frontend
+    volumes:
+      - ./nginx.conf.template:/etc/nginx/conf.d/default.conf:ro
+      - ./frontend_web/dist:/var/www/he-thong-cuu-ho/frontend_web/dist:ro
+      - ./backend/uploads:/var/www/he-thong-cuu-ho/backend/uploads:ro
+
+  mongodb:
+    image: mongo:6-jammy # Specify explicitly instead of latest
+    container_name: cuuho_mongodb_prod
+    restart: always
+    volumes:
+      - mongo_prod_data:/data/db
+    # Chỉ bộc lộ cổng port này ra ngoài local khi cần, nếu host chung Nginx thì ko cần mở port ra ngoài host,
+    # ứng dụng Node gọi trực tiếp mongodb:27017 thông qua docker network map
+
+  redis:
+    image: redis:alpine
+    container_name: cuuho_redis_prod
+    restart: always
+    # ports:
+    #  - "6379:6379" # Không expose nếu gọi từ internal docker network để an toàn
+
+volumes:
+  mongo_prod_data:

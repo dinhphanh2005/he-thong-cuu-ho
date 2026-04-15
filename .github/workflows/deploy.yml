@@ -1,0 +1,36 @@
+name: Deploy to EC2 Production
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Server via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script: |
+            cd /var/www/he-thong-cuu-ho
+            git pull origin main
+
+            # Cập nhật backend
+            cd backend
+            npm ci
+            npx pm2 reload ecosystem.config.js --env production
+
+            # Cập nhật frontend
+            cd ../frontend_web
+            npm ci
+            npm run build
+
+            echo "Deploy completed successfully at $(date)"

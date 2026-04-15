@@ -175,10 +175,112 @@ function AddUserModal({ onClose, onSucceed }) {
   );
 }
 
+// ── Edit User Modal ───────────────────────────────────────────────────────────
+function EditUserModal({ user, onClose, onSucceed }) {
+  const [name, setName] = useState(user.name || '');
+  const [phone, setPhone] = useState(user.phone || '');
+  const [email, setEmail] = useState(user.email || '');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!name.trim()) { setError('Tên không được để trống'); return; }
+    const phoneRegex = /^0[35789][0-9]{8}$/;
+    if (phone && !phoneRegex.test(phone)) { setError('Số điện thoại không hợp lệ (10 số, đầu 03/05/07/08/09)'); return; }
+    setLoading(true); setError('');
+    try {
+      await adminAPI.updateUser(user._id, { name: name.trim(), phone, email });
+      onSucceed();
+      onClose();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Không thể cập nhật tài khoản');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+      <div className="bg-white rounded-[40px] w-full max-w-md shadow-2xl overflow-hidden">
+        <div className="p-8 pb-4 flex justify-between items-center border-b border-gray-50">
+          <div>
+            <h3 className="text-lg font-black text-gray-900">Chỉnh sửa tài khoản</h3>
+            <p className="text-xs text-gray-400 mt-0.5 font-medium">{user.role === 'DISPATCHER' ? 'Điều phối viên' : 'Nhân viên cứu hộ'}</p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-50 rounded-full"><X size={20} /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-8 space-y-5">
+          <div>
+            <label className="text-xs font-bold text-gray-500 mb-1.5 block">Họ và tên *</label>
+            <input type="text" value={name} onChange={e => setName(e.target.value)}
+              className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-gray-500 mb-1.5 block">Số điện thoại</label>
+            <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="0901234567"
+              className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-gray-500 mb-1.5 block">Email</label>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@cuuho.vn"
+              className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          {error && <p className="text-red-500 text-xs bg-red-50 px-3 py-2 rounded-xl">{error}</p>}
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose}
+              className="flex-1 py-3 border border-gray-200 rounded-2xl text-sm font-bold text-gray-600 hover:bg-gray-50 transition-colors">
+              Hủy
+            </button>
+            <button type="submit" disabled={loading}
+              className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 rounded-2xl text-sm font-bold text-white transition-colors">
+              {loading ? 'Đang lưu...' : 'Lưu thay đổi'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Delete Confirm Modal ──────────────────────────────────────────────────────
+function DeleteConfirmModal({ user, onClose, onConfirm, loading }) {
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+      <div className="bg-white rounded-[40px] w-full max-w-sm shadow-2xl p-10 text-center">
+        <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+          <Trash2 size={28} className="text-red-500" />
+        </div>
+        <h3 className="text-lg font-black text-gray-900 mb-2">Xóa tài khoản?</h3>
+        <p className="text-sm text-gray-500 mb-1">
+          Bạn sắp vô hiệu hóa tài khoản của <span className="font-bold text-gray-800">{user.name}</span>.
+        </p>
+        <p className="text-xs text-red-400 mb-8 bg-red-50 px-4 py-2 rounded-xl">
+          Tài khoản sẽ bị khóa vĩnh viễn và không thể đăng nhập.
+        </p>
+        <div className="flex gap-3">
+          <button onClick={onClose}
+            className="flex-1 py-3 border border-gray-200 rounded-2xl text-sm font-bold text-gray-600 hover:bg-gray-50 transition-colors">
+            Hủy bỏ
+          </button>
+          <button onClick={onConfirm} disabled={loading}
+            className="flex-1 py-3 bg-red-500 hover:bg-red-600 disabled:opacity-60 rounded-2xl text-sm font-bold text-white transition-colors">
+            {loading ? 'Đang xóa...' : 'Xác nhận xóa'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Users() {
   const [users, setUsers] = useState([]);
   const [search, setSearch] = useState('');
-  const [modal, setModal] = useState(null); // 'ADD_USER', 'SUCCESS'
+  const [modal, setModal] = useState(null); // 'ADD_USER'
+  const [editingUser, setEditingUser] = useState(null);   // user object đang sửa
+  const [deletingUser, setDeletingUser] = useState(null); // user object đang xóa
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [resetModalData, setResetModalData] = useState(null);
   const [activeMenu, setActiveMenu] = useState(null);
   const [loadingList, setLoadingList] = useState(true);
 
@@ -248,6 +350,34 @@ export default function Users() {
        setActiveMenu(null);
     } catch(e) {
        console.error(e);
+       alert('Không thể thay đổi trạng thái tài khoản.');
+    }
+  };
+
+  const handleResetPassword = async (id) => {
+    if(window.confirm('Khôi phục mật khẩu mặc định cho user này?')) {
+       try {
+          const res = await adminAPI.resetUserPassword(id);
+          setResetModalData(res.data.data); // { name, defaultPassword }
+          setActiveMenu(null);
+       } catch(e) {
+          alert('Không thể khôi phục mật khẩu.');
+          console.error(e);
+       }
+    }
+  };
+
+  const handleDeleteUser = async () => {
+    if (!deletingUser) return;
+    setDeleteLoading(true);
+    try {
+      await adminAPI.deleteUser(deletingUser._id);
+      setDeletingUser(null);
+      fetchUsers();
+    } catch(e) {
+      alert(e.response?.data?.message || 'Không thể xóa tài khoản.');
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -362,10 +492,29 @@ export default function Users() {
                               {activeMenu === user._id && (
                                 <>
                                  <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setActiveMenu(null); }} />
-                                 <div className="absolute right-12 top-12 mt-1 w-48 bg-white border border-gray-100 rounded-2xl shadow-xl z-50 overflow-hidden animate-slide-up" onClick={(e) => e.stopPropagation()}>
-                                   <button onClick={() => toggleUserLocal(user._id)} className="w-full text-left px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2">
-                                      <Key size={14} /> Khóa/Mở tài khoản
+                                 <div className="absolute right-12 top-12 mt-1 w-56 bg-white border border-gray-100 rounded-2xl shadow-xl z-50 overflow-hidden animate-slide-up" onClick={(e) => e.stopPropagation()}>
+                                   {/* Sửa thông tin */}
+                                   {user.role !== 'ADMIN' && (
+                                     <button onClick={() => { setEditingUser(user); setActiveMenu(null); }}
+                                       className="w-full text-left px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2">
+                                       <FileEdit size={14} /> Sửa thông tin
+                                     </button>
+                                   )}
+                                   <button onClick={() => toggleUserLocal(user._id)}
+                                     className="w-full text-left px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2 border-t border-gray-50">
+                                     <Key size={14} /> Khóa/Mở tài khoản
                                    </button>
+                                   <button onClick={() => handleResetPassword(user._id)}
+                                     className="w-full text-left px-4 py-3 text-sm font-bold text-blue-600 hover:bg-blue-50 transition-colors flex items-center gap-2 border-t border-gray-50">
+                                     <Shield size={14} /> Reset mật khẩu
+                                   </button>
+                                   {/* Xóa tài khoản */}
+                                   {user.role !== 'ADMIN' && (
+                                     <button onClick={() => { setDeletingUser(user); setActiveMenu(null); }}
+                                       className="w-full text-left px-4 py-3 text-sm font-bold text-red-500 hover:bg-red-50 transition-colors flex items-center gap-2 border-t border-gray-50">
+                                       <Trash2 size={14} /> Xóa tài khoản
+                                     </button>
+                                   )}
                                  </div>
                                 </>
                               )}
@@ -380,11 +529,55 @@ export default function Users() {
       </div>
 
       {modal === 'ADD_USER' && (
-        <AddUserModal 
-          onClose={() => setModal(null)} 
+        <AddUserModal
+          onClose={() => setModal(null)}
           onSucceed={() => fetchUsers()}
         />
       )}
+
+      {/* Edit User Modal */}
+      {editingUser && (
+        <EditUserModal
+          user={editingUser}
+          onClose={() => setEditingUser(null)}
+          onSucceed={() => fetchUsers()}
+        />
+      )}
+
+      {/* Delete Confirm Modal */}
+      {deletingUser && (
+        <DeleteConfirmModal
+          user={deletingUser}
+          onClose={() => setDeletingUser(null)}
+          onConfirm={handleDeleteUser}
+          loading={deleteLoading}
+        />
+      )}
+
+      {resetModalData && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[120] p-4">
+          <div className="bg-white rounded-[40px] p-12 w-full max-w-sm text-center shadow-2xl">
+            <div className="w-20 h-20 bg-blue-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg shadow-blue-200">
+              <Key size={40} className="text-white" />
+            </div>
+            <h3 className="text-xl font-black text-gray-900 mb-2">Đã gỡ mật khẩu!</h3>
+            <p className="text-sm text-gray-500 mb-8">Hãy gửi mật khẩu này cho chủ tài khoản.</p>
+            <div className="bg-gray-50 border border-gray-200 rounded-2xl p-5 text-left mb-6">
+              <p className="text-xs font-bold text-gray-400 mb-1">Tài khoản</p>
+              <p className="text-sm font-black text-gray-900 mb-4">{resetModalData.name}</p>
+              <p className="text-xs font-bold text-gray-400 mb-1">Mật khẩu mới</p>
+              <p className="text-lg font-black text-blue-600 tracking-widest">{resetModalData.defaultPassword}</p>
+            </div>
+            <button
+              onClick={() => setResetModalData(null)}
+              className="w-full py-4 bg-blue-600 rounded-2xl text-sm font-black text-white hover:bg-blue-700 transition-all"
+            >
+              Đóng
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

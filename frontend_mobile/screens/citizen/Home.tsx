@@ -110,7 +110,7 @@ export default function CitizenHome({ navigation }: any) {
 
   const handleSOS = () => {
     Alert.alert(
-      '🚨 SOS Khẩn cấp',
+      'SOS Khẩn cấp',
       'Bạn có chắc muốn gửi tín hiệu SOS? Hệ thống sẽ ngay lập tức điều phối đội cứu hộ.',
       [
         { text: 'Hủy', style: 'cancel' },

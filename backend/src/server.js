@@ -1,3 +1,12 @@
+// Initialize Datadog APM Tracer before everything else
+const tracer = require('dd-trace');
+if (process.env.NODE_ENV === 'production') {
+  tracer.init({
+    logInjection: true, // Inject trace IDs into application logs
+    profiling: true,    // Enable Continuous Profiler
+  });
+}
+
 require('dotenv').config();
 const dns = require('dns');
 if (dns.setDefaultResultOrder) {

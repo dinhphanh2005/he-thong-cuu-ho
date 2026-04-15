@@ -26,7 +26,17 @@ exports.createIncident = async (req, res) => {
   const { type, severity, coordinates, address, description, callerPhone } = req.body;
 
   const parsedCoords = typeof coordinates === 'string' ? JSON.parse(coordinates) : coordinates;
-  const resolvedAddress = address || (await reverseGeocode(parsedCoords[1], parsedCoords[0]));
+
+  // Validate bounds (Vietnam: lng 102.0 -> 110.0, lat 8.0 -> 24.0)
+  const [lng, lat] = parsedCoords;
+  if (!lng || !lat || lng < 102.0 || lng > 110.0 || lat < 8.0 || lat > 24.0) {
+    return res.status(400).json({ 
+      success: false, 
+      message: 'Vị trí sự cố không hỗ trợ (Nằm ngoài phạm vi phục vụ của hệ thống)' 
+    });
+  }
+
+  const resolvedAddress = address || (await reverseGeocode(lat, lng));
 
   const code = `INC-${Date.now()}-${Math.floor(Math.random() * 9000) + 1000}`;
   const isDispatcher = req.user.role === 'DISPATCHER';
@@ -286,7 +296,10 @@ exports.updateIncidentStatus = async (req, res) => {
 
   if (req.user.role === 'RESCUE') {
     const userTeamId = req.user.rescueTeam?._id?.toString();
-    if (!userTeamId || userTeamId !== incident.assignedTeam?.toString()) {
+    const isAssigned = userTeamId && userTeamId === incident.assignedTeam?.toString();
+    const wasOffered = userTeamId && userTeamId === incident.offeredTo?.toString();
+
+    if (!userTeamId || (!isAssigned && !wasOffered)) {
       return res.status(403).json({ success: false, message: 'Không có quyền cập nhật sự cố này' });
     }
 
@@ -421,8 +434,11 @@ exports.refuseIncident = async (req, res) => {
     return res.status(403).json({ success: false, message: 'Không có quyền từ chối sự cố này' });
   }
 
-  // Lưu lại đội đã từ chối
-  if (!incident.rejectedTeams.includes(teamId)) {
+  // Lưu lại đội đã từ chối — so sánh đúng kiểu ObjectId bằng .toString()
+  const alreadyRejected = (incident.rejectedTeams || []).some(
+    (id) => id.toString() === teamId
+  );
+  if (!alreadyRejected) {
     incident.rejectedTeams.push(teamId);
   }
 
@@ -430,6 +446,7 @@ exports.refuseIncident = async (req, res) => {
   const oldTeamId = incident.assignedTeam || incident.offeredTo;
   incident.assignedTeam = null;
   incident.offeredTo = null;
+  incident.offerExpiresAt = null; // Reset timer để tránh job cũ trigger lại nhầm
   incident.timeline.push({
     status: 'PENDING',
     updatedBy: req.user._id,
@@ -480,7 +497,20 @@ exports.refuseIncident = async (req, res) => {
 exports.triggerSOS = async (req, res) => {
   const { coordinates, description } = req.body;
 
-  const resolvedAddress = await reverseGeocode(coordinates[1], coordinates[0]);
+  if (!coordinates || !Array.isArray(coordinates) || coordinates.length < 2) {
+    return res.status(400).json({ success: false, message: 'Dữ liệu GPS không hợp lệ' });
+  }
+
+  // Validate bounds (Vietnam: lng 102.0 -> 110.0, lat 8.0 -> 24.0)
+  const [lng, lat] = coordinates;
+  if (lng < 102.0 || lng > 110.0 || lat < 8.0 || lat > 24.0) {
+    return res.status(400).json({ 
+      success: false, 
+      message: 'Vị trí báo cáo không được hỗ trợ (Nằm ngoài phạm vi phục vụ của hệ thống)' 
+    });
+  }
+
+  const resolvedAddress = await reverseGeocode(lat, lng);
   const code = `SOS-${Date.now()}-${Math.floor(Math.random() * 9000) + 1000}`;
 
   const incident = await Incident.create({

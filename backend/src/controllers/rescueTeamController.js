@@ -109,7 +109,7 @@ exports.updateLocation = async (req, res) => {
   const team = await RescueTeam.findByIdAndUpdate(
     teamId,
     { 'currentLocation.coordinates': coordinates, lastLocationUpdate: new Date() },
-    { new: true, runValidators: false }
+    { returnDocument: 'after', runValidators: false }
   );
 
   if (!team) {

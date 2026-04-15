@@ -72,7 +72,9 @@ const buildEmailHtml = (stats) => `
  */
 const initDailyReportQueue = () => {
   const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
-  reportQueue = new Bull(QUEUE_NAME, redisUrl);
+  reportQueue = new Bull(QUEUE_NAME, redisUrl, {
+    redis: { maxRetriesPerRequest: null }
+  });
 
   reportQueue.process(async (job) => {
     const { targetDate } = job.data;

@@ -1,0 +1,74 @@
+name: Production Ready CI/CD Workflows
+
+on:
+  push:
+    branches: [ "master", "main" ]
+  pull_request:
+    branches: [ "master", "main" ]
+
+jobs:
+  backend-tests:
+    name: Backend API Tests
+    runs-on: ubuntu-latest
+    
+    defaults:
+      run:
+        working-directory: ./backend
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        cache-dependency-path: ./backend/package-lock.json
+
+    - name: Ensure Package Lock Exists
+      run: if [ ! -f "package-lock.json" ]; then npm install --package-lock-only; fi
+
+    - name: Install dependencies
+      run: npm ci || npm install
+
+    # - name: Run unit tests
+    #   run: npm test
+
+    # - name: Run Linting
+    #   run: npm run lint
+
+  frontend-build:
+    name: Frontend Web Build Check
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./frontend_web
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+        cache-dependency-path: ./frontend_web/package-lock.json
+
+    - name: Ensure Package Lock Exists
+      run: if [ ! -f "package-lock.json" ]; then npm install --package-lock-only; fi
+
+    - name: Install dependencies
+      run: npm ci || npm install --legacy-peer-deps
+
+    - name: Build production bundle
+      run: npm run build
+      env:
+        VITE_API_URL: http://localhost:5001/api/v1
+        VITE_SOCKET_URL: http://localhost:5001

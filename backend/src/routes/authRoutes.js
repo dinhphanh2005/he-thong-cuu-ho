@@ -11,6 +11,10 @@ const {
   updateFcmToken,
   sendOTP,
   verifyOTP,
+  verify2FA,
+  updateSettings,
+  registerDispatcherRequest,
+  resetPassword,
 } = require('../controllers/authController');
 
 const { protect } = require('../middleware/authMiddleware');
@@ -203,6 +207,33 @@ router.patch('/fcm-token', protect, updateFcmToken);
 
 /**
  * @swagger
+ * /api/v1/auth/settings:
+ *   patch:
+ *     summary: Cập nhật cài đặt cá nhân (notifications, mapConfig, name)
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               notifications:
+ *                 type: object
+ *               mapConfig:
+ *                 type: object
+ *               name:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Đã lưu và emit realtime tới tất cả tabs
+ */
+router.patch('/settings', protect, updateSettings);
+
+/**
+ * @swagger
  * /api/v1/auth/send-otp:
  *   post:
  *     summary: Gửi mã OTP xác thực
@@ -218,6 +249,25 @@ router.post('/send-otp', sendOTP);
  *     tags: [Auth]
  */
 router.post('/verify-otp', verifyOTP);
+
+/**
+ * @swagger
+ * /api/v1/auth/verify-2fa:
+ *   post:
+ *     summary: Xác thực 2FA lúc Login và cấp Token
+ *     tags: [Auth]
+ */
+router.post('/verify-2fa', verify2FA);
+
+/**
+ * @desc    Yêu cầu cấp tài khoản
+ */
+router.post('/request-access', registerDispatcherRequest);
+
+/**
+ * @desc    Đặt lại mật khẩu
+ */
+router.post('/reset-password', resetPassword);
 
 // ================================================================
 // ⚠️  CHỈ DÙNG LÚC DEV — tự động bị tắt khi NODE_ENV=production

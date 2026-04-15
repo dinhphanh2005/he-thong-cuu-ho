@@ -21,6 +21,23 @@ import { incidentAPI, rescueAPI } from '../../src/services/api';
 
 const { width } = Dimensions.get('window');
 
+function getDistanceFromLatLonInm(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const R = 6371; // Radius of the earth in km
+  const dLat = deg2rad(lat2 - lat1);
+  const dLon = deg2rad(lon2 - lon1); 
+  const a = 
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * 
+    Math.sin(dLon / 2) * Math.sin(dLon / 2)
+    ; 
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)); 
+  return R * c * 1000; // Distance in m
+}
+
+function deg2rad(deg: number) {
+  return deg * (Math.PI / 180);
+}
+
 type IncidentStage = 'IDLE' | 'OFFERING' | 'ACCEPTED' | 'ARRIVED' | 'PROCESSING';
 
 function mapIncidentToStage(incident: any): IncidentStage {
@@ -62,8 +79,13 @@ export default function Home({ navigation }: any) {
   const [team, setTeam] = useState<any>(null);
   const [submittingTask, setSubmittingTask] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number>(0);
+  const [isDemoMoving, setIsDemoMoving] = useState(false);
+  const [hasMockedLocation, setHasMockedLocation] = useState(false);
+  const [distanceToIncident, setDistanceToIncident] = useState<number | null>(null);
+  const notifiedNearRef = useRef(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const mapRef = useRef<MapView>(null);
+  const demoRouteIndexRef = useRef(0);
   // Keep a ref to always access current team/incident in socket callbacks (avoid stale closures)
   const teamRef = useRef<any>(null);
   const currentIncidentRef = useRef<any>(null);
@@ -175,11 +197,13 @@ export default function Home({ navigation }: any) {
             longitude: loc.coords.longitude,
           };
 
-          setLocation(nextLocation);
+          if (!isDemoMoving && !hasMockedLocation) {
+            setLocation(nextLocation);
 
-          if (isOnline) {
-            await rescueAPI.updateLocation([nextLocation.longitude, nextLocation.latitude]);
-            updateRescueLocation(nextLocation.latitude, nextLocation.longitude);
+            if (isOnline) {
+              await rescueAPI.updateLocation([nextLocation.longitude, nextLocation.latitude]);
+              updateRescueLocation(nextLocation.latitude, nextLocation.longitude);
+            }
           }
         } catch {}
       };
@@ -195,7 +219,112 @@ export default function Home({ navigation }: any) {
       mounted = false;
       if (intervalId) clearInterval(intervalId);
     };
-  }, [isOnline, incidentStage]);
+  }, [isOnline, incidentStage, isDemoMoving, hasMockedLocation]);
+
+  // Handle Demo Mode movement & Distance Tracking
+  useEffect(() => {
+    if (currentCoordinates && currentIncident?.location?.coordinates) {
+      const d = getDistanceFromLatLonInm(
+        currentCoordinates[1], currentCoordinates[0],
+        currentIncident.location.coordinates[1], currentIncident.location.coordinates[0]
+      );
+      setDistanceToIncident(d);
+
+      if (isDemoMoving && d <= 2) {
+        setIsDemoMoving(false);
+      }
+
+      const socket = getSocket();
+      if (d <= 100 && d > 0 && !notifiedNearRef.current && incidentStage === 'ACCEPTED') {
+        notifiedNearRef.current = true;
+        if (socket) {
+           socket.emit('rescue:arriving-soon', { code: currentIncident.code, distance: Math.round(d) });
+        }
+      }
+    }
+  }, [currentCoordinates, currentIncident, incidentStage, isDemoMoving]);
+
+  useEffect(() => {
+    if (!isDemoMoving) {
+       demoRouteIndexRef.current = 0;
+    }
+  }, [isDemoMoving]);
+
+  useEffect(() => {
+    if (incidentStage === 'IDLE') {
+       setHasMockedLocation(false);
+    }
+  }, [incidentStage]);
+
+  useEffect(() => {
+    let interval: any;
+    if (isDemoMoving && incidentStage === 'ACCEPTED' && currentIncident?.location?.coordinates) {
+       interval = setInterval(() => {
+          setLocation((prev: any) => {
+             if (!prev) return prev;
+
+             const path = currentIncident.routingPath;
+             let remainingDist = 250; // Quãng đường di chuyển trong một tick (250m/0.5s -> ~1800km/h)
+             let curLat = prev.latitude;
+             let curLng = prev.longitude;
+             
+             while (remainingDist > 0) {
+                 const isLastLeg = !path || demoRouteIndexRef.current >= path.length;
+                 let targetLng = currentIncident.location.coordinates[0];
+                 let targetLat = currentIncident.location.coordinates[1];
+                 
+                 if (!isLastLeg) {
+                     targetLng = path[demoRouteIndexRef.current][0];
+                     targetLat = path[demoRouteIndexRef.current][1];
+                 }
+
+                 const legDist = getDistanceFromLatLonInm(curLat, curLng, targetLat, targetLng);
+                 
+                 // Đã ghim trúng waypoint hoặc đích
+                 if (legDist <= 2) {
+                     if (isLastLeg) {
+                         curLat = targetLat;
+                         curLng = targetLng;
+                         break;
+                     } else {
+                         demoRouteIndexRef.current += 1;
+                         continue;
+                     }
+                 }
+
+                 if (legDist <= remainingDist) {
+                     // Đủ sức đi hết đoạn này
+                     curLat = targetLat;
+                     curLng = targetLng;
+                     remainingDist -= legDist;
+                     if (isLastLeg) {
+                         break; // Đã tới đích hoàn toàn
+                     } else {
+                         demoRouteIndexRef.current += 1;
+                     }
+                 } else {
+                     // Đi được một phần đoạn này thì hết "xăng" của tick
+                     const fraction = remainingDist / legDist;
+                     curLat = curLat + (targetLat - curLat) * fraction;
+                     curLng = curLng + (targetLng - curLng) * fraction;
+                     remainingDist = 0; 
+                 }
+             }
+
+             const nextLoc = { latitude: curLat, longitude: curLng };
+
+             // Background sync lên DB và bản đồ cho người dùng thấy xe đang chạy real-time
+             rescueAPI.updateLocation([nextLoc.longitude, nextLoc.latitude]).catch(()=>{});
+             updateRescueLocation(nextLoc.latitude, nextLoc.longitude);
+             
+             return nextLoc;
+          });
+       }, 500); 
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isDemoMoving, incidentStage, currentIncident]);
 
   useEffect(() => {
     const socket = getSocket();
@@ -216,9 +345,10 @@ export default function Home({ navigation }: any) {
       setCurrentIncident(incident);
       currentIncidentRef.current = incident;
       setIncidentStage('OFFERING');
-      setTimeLeft(payload.timeoutSec || 35);
+      const timeoutSeconds = payload.timeoutSec || 35;
+      setTimeLeft(timeoutSeconds);
       if (currentUserRole === 'LEADER') {
-        Alert.alert('Nhiệm vụ mới', `Bạn có 35 giây để chấp nhận sự cố ${incident.code}`);
+        Alert.alert('Nhiệm vụ mới', `Bạn có ${timeoutSeconds} giây để chấp nhận sự cố ${incident.code}`);
       } else {
         Alert.alert('Đội có nhiệm vụ mới', `Đội bạn được đề xuất xử lý sự cố ${incident.code}. Đang chờ đội trưởng xác nhận.`);
       }
@@ -273,6 +403,8 @@ export default function Home({ navigation }: any) {
         setCurrentIncident(null);
         currentIncidentRef.current = null;
         setIncidentStage('IDLE');
+        setIsDemoMoving(false);
+        notifiedNearRef.current = false;
         loadRescueState();
         return;
       }
@@ -287,6 +419,8 @@ export default function Home({ navigation }: any) {
       setCurrentIncident(null);
       currentIncidentRef.current = null;
       setIncidentStage('IDLE');
+      setIsDemoMoving(false);
+      notifiedNearRef.current = false;
       loadRescueState();
     };
 
@@ -363,6 +497,13 @@ export default function Home({ navigation }: any) {
     }
     if (incidentStage === 'ACCEPTED') {
       // Notify arrival
+      // Thực tế GPS luôn có sai số 10-20m, trói vào 0m-2m là bất khả thi trên thiết bị thật. 
+      // Do đó set radius cho phép xác nhận là 30 mét. Cho hiển thị thân thiện là 0m trong UI.
+      if (distanceToIncident !== null && Math.round(distanceToIncident) > 30) {
+        Alert.alert('Chưa đến nơi', `Còn cách hiện trường ~${Math.round(distanceToIncident)}m. Phải đến sát hiện trường mới được xác nhận.`);
+        return;
+      }
+      setIsDemoMoving(false);
       await submitIncidentStatus('ARRIVED', 'Đội cứu hộ đã đến hiện trường', 'ARRIVED');
       return;
     }
@@ -581,6 +722,21 @@ export default function Home({ navigation }: any) {
           </View>
         </TouchableOpacity>
 
+        {!isDemoMoving && incidentStage === 'ACCEPTED' && distanceToIncident !== null && Math.round(distanceToIncident) > 30 && (
+          <TouchableOpacity
+            style={[styles.actionBtnFull, { backgroundColor: '#8E44AD', marginTop: 12 }]}
+            onPress={() => {
+              setIsDemoMoving(true);
+              setHasMockedLocation(true);
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Ionicons name="car" size={20} color={COLORS.white} style={{ marginRight: 8 }} />
+              <Text style={styles.actionBtnText}>Demo Xe Chạy (Còn {Math.round(distanceToIncident)}m)</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity
           style={[styles.actionBtnFull, { backgroundColor: btnColor, marginTop: 12 }]}
           onPress={handleAdvanceTask}
@@ -627,6 +783,38 @@ export default function Home({ navigation }: any) {
             showsMyLocationButton={false}
             showsCompass={false}
           >
+            {/* Nút định vị lại */}
+            <TouchableOpacity
+              style={{
+                position: 'absolute',
+                top: 140,
+                right: 16,
+                width: 44,
+                height: 44,
+                borderRadius: 22,
+                backgroundColor: 'white',
+                alignItems: 'center',
+                justifyContent: 'center',
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.25,
+                shadowRadius: 4,
+                elevation: 5,
+                zIndex: 10,
+              }}
+              onPress={() => {
+                if (currentCoordinates) {
+                  mapRef.current?.animateToRegion({
+                    latitude: currentCoordinates[1],
+                    longitude: currentCoordinates[0],
+                    latitudeDelta: 0.01,
+                    longitudeDelta: 0.01,
+                  }, 600);
+                }
+              }}
+            >
+              <Ionicons name="locate" size={22} color={COLORS.primary} />
+            </TouchableOpacity>
             <Marker
               coordinate={{
                 latitude: currentCoordinates[1],
@@ -652,14 +840,14 @@ export default function Home({ navigation }: any) {
                 </View>
               </Marker>
             )}
-            {currentIncident?.routingPath && currentIncident.routingPath.length > 0 && (
-              <Polyline
-                coordinates={currentIncident.routingPath.map((p: any) => ({ latitude: p[1], longitude: p[0] }))}
-                strokeColor="#3498DB"
-                strokeWidth={5}
-                lineDashPattern={[0]}
-              />
-            )}
+            <Polyline
+              // Fixed: Always render Polyline but pass empty array when no path exists
+              // This is a known workaround for react-native-maps where unmounting a Polyline leaves the stroke on the native map
+              coordinates={currentIncident?.routingPath?.length > 0 ? currentIncident.routingPath.map((p: any) => ({ latitude: p[1], longitude: p[0] })) : []}
+              strokeColor="#3498DB"
+              strokeWidth={5}
+              lineDashPattern={[0]}
+            />
           </MapView>
         ) : (
           <View style={styles.mapLoading}>

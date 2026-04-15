@@ -1,11 +1,48 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Hệ thống Cứu hộ Giao thông — Backend API",
+  "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "nodemon src/server.js"
+    "dev": "nodemon src/server.js",
+    "test": "jest --runInBand --forceExit --detectOpenHandles",
+    "test:watch": "jest --watch --runInBand",
+    "test:coverage": "jest --coverage --runInBand --forceExit --detectOpenHandles",
+    "test:official": "jest tests/official_testcases.test.js --runInBand --forceExit --verbose"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "setupFilesAfterEnv": ["<rootDir>/tests/setup.js"],
+    "testMatch": [
+      "**/tests/**/*.test.js",
+      "**/__tests__/**/*.test.js"
+    ],
+    "testTimeout": 60000,
+    "forceExit": true,
+    "detectOpenHandles": true,
+    "collectCoverageFrom": [
+      "src/controllers/**/*.js",
+      "src/services/**/*.js",
+      "src/middleware/**/*.js",
+      "src/routes/**/*.js",
+      "src/utils/**/*.js",
+      "!src/config/**",
+      "!src/jobs/**",
+      "!src/scratch.js",
+      "!src/**/*.test.js",
+      "!src/services/socketService.js"
+    ],
+    "coverageReporters": ["text", "text-summary", "lcov", "html"],
+    "coverageThreshold": {
+      "global": {
+        "branches": 30,
+        "functions": 40,
+        "lines": 40,
+        "statements": 40
+      }
+    },
+    "verbose": true
   },
   "keywords": [],
   "author": "",
@@ -14,8 +51,10 @@
     "bcrypt": "^6.0.0",
     "bull": "^4.16.5",
     "cors": "^2.8.6",
+    "dd-trace": "^5.97.0",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
+    "express-mongo-sanitize": "^2.2.0",
     "express-rate-limit": "^8.3.2",
     "express-validator": "^7.3.2",
     "firebase-admin": "^13.8.0",
@@ -34,7 +73,10 @@
   },
   "devDependencies": {
     "axios": "^1.15.0",
+    "jest": "^30.3.0",
+    "mongodb-memory-server": "^11.0.1",
     "nodemon": "^3.1.14",
-    "socket.io-client": "^4.8.3"
+    "socket.io-client": "^4.8.3",
+    "supertest": "^7.2.2"
   }
 }

@@ -1,19 +1,59 @@
 import React, { useState, useEffect } from 'react';
 import { MapContainer, TileLayer, CircleMarker, Popup, Polyline, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import { X, MapPin, User, AlertCircle, Zap } from 'lucide-react';
+import { X, MapPin, User, AlertCircle, Zap, TriangleAlert } from 'lucide-react';
 import { incidentAPI, rescueAPI } from '../services/api';
 import { useApp } from '../context/AppContext';
 import { useNavigate } from 'react-router-dom';
 import incidentFallbackImg from '../assets/images/incident.jpg';
 
+/**
+ * GPS Accuracy Warning — hiển thị khi tọa độ có thể không chính xác
+ *
+ * Hệ thống dùng nhiều nguồn tọa độ:
+ * 1. Browser Geolocation API (độ chính xác 3–50m, cao nhất)
+ * 2. Reverse geocoding từ địa chỉ nhập tay (có thể lệch hàng trăm mét)
+ * 3. GPS thủ công từ Dispatcher (nhập địa chỉ → Nominatim geocode)
+ *
+ * Dấu hiệu cần cảnh báo:
+ * - Tọa độ được nhập qua địa chỉ text (không phải GPS thực)
+ * - Địa chỉ không rõ ràng (chỉ có quận/huyện, không có số nhà/phố)
+ */
+function GpsAccuracyWarning({ incident }) {
+  // Cảnh báo nếu không có photos (likely not a real GPS report) hoặc
+  // địa chỉ chỉ có cấp quận trở lên (không có số cụ thể)
+  const address = incident?.location?.address || '';
+  const hasSpecificAddress = /\d/.test(address); // Địa chỉ cụ thể có chứa số
+  const source = incident?.callerPhone ? 'hotline' : 'app';
+  const isHotlineWithoutGPS = source === 'hotline';
+
+  if (!isHotlineWithoutGPS && hasSpecificAddress) return null;
+
+  return (
+    <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 text-xs">
+      <TriangleAlert size={14} className="text-amber-500 shrink-0 mt-0.5" />
+      <div>
+        <p className="font-bold text-amber-700">Tọa độ có thể chưa chính xác</p>
+        <p className="text-amber-600 mt-0.5">
+          {isHotlineWithoutGPS
+            ? 'Sự cố báo qua hotline — tọa độ geocode từ địa chỉ, có thể lệch 50–500m. Đội cứu hộ nên liên lạc để xác nhận vị trí chính xác.'
+            : 'Địa chỉ không có số nhà cụ thể — vui lòng xác nhận với người báo cáo trước khi điều động.'}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 const STATUS_LABELS = {
-  PENDING: { label: 'Chờ xử lý', color: 'bg-yellow-100 text-yellow-700' },
-  ASSIGNED: { label: 'Đã phân công', color: 'bg-blue-100 text-blue-700' },
-  ARRIVED: { label: 'Đã đến hiện trường', color: 'bg-violet-100 text-violet-700' },
-  PROCESSING: { label: 'Đang xử lý', color: 'bg-purple-100 text-purple-700' },
-  COMPLETED: { label: 'Hoàn thành', color: 'bg-green-100 text-green-700' },
-  CANCELLED: { label: 'Đã hủy', color: 'bg-gray-100 text-gray-600' },
+  PENDING:            { label: 'Chờ xử lý',             color: 'bg-yellow-100 text-yellow-700' },
+  OFFERING:           { label: 'Đang đề xuất đội',       color: 'bg-orange-100 text-orange-600' }, // FIX BUG-04
+  ASSIGNED:           { label: 'Đã phân công',           color: 'bg-blue-100 text-blue-700' },
+  ARRIVED:            { label: 'Đã đến hiện trường',     color: 'bg-violet-100 text-violet-700' },
+  PROCESSING:         { label: 'Đang xử lý',             color: 'bg-purple-100 text-purple-700' },
+  IN_PROGRESS:        { label: 'Đang xử lý',             color: 'bg-purple-100 text-purple-700' },
+  COMPLETED:          { label: 'Hoàn thành',             color: 'bg-green-100 text-green-700' },
+  CANCELLED:          { label: 'Đã hủy',                 color: 'bg-gray-100 text-gray-600' },
+  HANDLED_BY_EXTERNAL:{ label: 'Chuyển ngoài xử lý',    color: 'bg-slate-100 text-slate-500' },
 };
 
 const TYPE_LABELS = {
@@ -153,6 +193,21 @@ export default function IncidentDetailPanel({ incidentId, onClose }) {
   const statusInfo = STATUS_LABELS[incident.status] || STATUS_LABELS.PENDING;
   const isSOS = incident.severity === 'CRITICAL' || incident.code?.toUpperCase?.().startsWith('SOS');
 
+  const handleCancelIncident = async () => {
+    if (!window.confirm('Bạn có chắc chắn muốn huỷ sự cố này không? Hành động này sẽ giải phóng đội cứu hộ nếu có.')) return;
+    setAssigning(true);
+    try {
+      await incidentAPI.updateStatus(incidentId, 'CANCELLED', 'Dispatcher huỷ sự cố');
+      const { data } = await incidentAPI.getById(incidentId);
+      setIncident(data.data);
+      fetchIncidents();
+    } catch (e) {
+      alert(e.response?.data?.message || 'Không thể huỷ sự cố');
+    } finally {
+      setAssigning(false);
+    }
+  };
+
   return (
     <div className="w-96 bg-white border-l border-gray-200 flex flex-col overflow-hidden flex-shrink-0">
       {/* Header */}
@@ -179,6 +234,11 @@ export default function IncidentDetailPanel({ incidentId, onClose }) {
           <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${statusInfo.color}`}>
             {statusInfo.label}
           </span>
+        </div>
+
+        {/* GPS Accuracy Warning */}
+        <div className="px-5 pt-3">
+          <GpsAccuracyWarning incident={incident} />
         </div>
 
         {/* Live map */}
@@ -328,45 +388,57 @@ export default function IncidentDetailPanel({ incidentId, onClose }) {
         )}
       </div>
 
-      {/* Force Assign Footer */}
-      {['PENDING', 'ASSIGNED', 'OFFERING'].includes(incident.status) && (
+      {/* Action Footer */}
+      {['PENDING', 'ASSIGNED', 'OFFERING', 'PROCESSING', 'ARRIVED'].includes(incident.status) && (
         <div className="px-5 py-4 border-t border-gray-100 bg-amber-50">
           <p className="text-xs text-amber-700 mb-2 font-medium flex items-center gap-1">
             <AlertCircle size={12} />
-            Hệ thống đang đề xuất tự động hoặc chưa có xe nhận. Bạn có thể chỉ định thủ công để ghi đè.
+            Hành động điều phối
           </p>
-          <select
-            value={selectedTeam}
-            onChange={e => setSelectedTeam(e.target.value)}
-            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">-- Chọn đội cứu hộ --</option>
-            {teamOptions.map(t => (
-              <option key={t._id} value={t._id} disabled={t.status !== 'AVAILABLE'}>
-                {t.label} - {t.statusText}
-              </option>
-            ))}
-          </select>
-          {selectedTeam && (() => {
-            const chosenTeam = teams.find((team) => team._id === selectedTeam);
-            if (!chosenTeam) return null;
-            return (
-              <p className="text-[11px] text-amber-800 mb-2">
-                {chosenTeam.status === 'AVAILABLE'
-                  ? 'Đội này đang đủ điều kiện nhận nhiệm vụ.'
-                  : chosenTeam.status === 'BUSY'
-                    ? 'Đội này đang có nhiệm vụ khác.'
-                    : `Đội này đang offline vì chưa đủ ${chosenTeam.minimumOnlineMembers || 2} thành viên online.`}
-              </p>
-            );
-          })()}
+          {['PENDING', 'ASSIGNED', 'OFFERING'].includes(incident.status) && (
+             <>
+               <select
+                 value={selectedTeam}
+                 onChange={e => setSelectedTeam(e.target.value)}
+                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+               >
+                 <option value="">-- Chọn đội cứu hộ (Force Assign) --</option>
+                 {teamOptions.map(t => (
+                   <option key={t._id} value={t._id} disabled={t.status !== 'AVAILABLE'}>
+                     {t.label} - {t.statusText}
+                   </option>
+                 ))}
+               </select>
+               {selectedTeam && (() => {
+                 const chosenTeam = teams.find((team) => team._id === selectedTeam);
+                 if (!chosenTeam) return null;
+                 return (
+                   <p className="text-[11px] text-amber-800 mb-2">
+                     {chosenTeam.status === 'AVAILABLE'
+                       ? 'Đội này đang đủ điều kiện nhận nhiệm vụ.'
+                       : chosenTeam.status === 'BUSY'
+                         ? 'Đội này đang có nhiệm vụ khác.'
+                         : `Đội này đang offline vì chưa đủ ${chosenTeam.minimumOnlineMembers || 2} thành viên online.`}
+                   </p>
+                 );
+               })()}
+               <button
+                 onClick={handleForceAssign}
+                 disabled={assigning || !selectedTeam}
+                 className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-sm rounded-lg transition-colors flex items-center justify-center gap-2 mb-2"
+               >
+                 <Zap size={14} />
+                 {assigning ? 'Đang phân công...' : 'Chỉ định đội (Ghi đè)'}
+               </button>
+             </>
+          )}
+
           <button
-            onClick={handleForceAssign}
-            disabled={assigning || !selectedTeam}
-            className="w-full py-2.5 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white font-bold text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
+            onClick={handleCancelIncident}
+            disabled={assigning}
+            className="w-full py-2 bg-white border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50 font-bold text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
           >
-            <Zap size={14} />
-            {assigning ? 'Đang phân công...' : 'Chỉ định đội cứu hộ (Force Assign)'}
+            Huỷ sự cố này
           </button>
         </div>
       )}

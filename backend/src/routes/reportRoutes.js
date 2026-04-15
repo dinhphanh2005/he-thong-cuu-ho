@@ -5,6 +5,7 @@ const express = require('express');
 const reportRouter = express.Router();
 const { getSummary, getHeatmap, getTimeline, getTeamPerformance } = require('../controllers/reportController');
 const { protect, checkPasswordChange, authorize } = require('../middleware/authMiddleware');
+const { cacheRoute } = require('../middleware/cacheMiddleware');
 
 /**
  * @swagger
@@ -38,7 +39,7 @@ reportRouter.use(protect, checkPasswordChange, authorize('DISPATCHER', 'ADMIN'))
  *       200:
  *         description: Stats theo status, type, severity + avgResponseTime
  */
-reportRouter.get('/summary', getSummary);
+reportRouter.get('/summary', cacheRoute(120), getSummary);
 
 /**
  * @swagger
@@ -63,7 +64,7 @@ reportRouter.get('/summary', getSummary);
  *       200:
  *         description: Mảng [{lat, lng, intensity, type, severity}] cho Leaflet.heat
  */
-reportRouter.get('/heatmap', getHeatmap);
+reportRouter.get('/heatmap', cacheRoute(120), getHeatmap);
 
 /**
  * @swagger
@@ -84,7 +85,7 @@ reportRouter.get('/heatmap', getHeatmap);
  *       200:
  *         description: Mảng [{_id, total, completed, sos}] theo ngày/tháng
  */
-reportRouter.get('/timeline', getTimeline);
+reportRouter.get('/timeline', cacheRoute(120), getTimeline);
 
 /**
  * @swagger
@@ -98,6 +99,6 @@ reportRouter.get('/timeline', getTimeline);
  *       200:
  *         description: Danh sách đội sắp xếp theo totalCompleted
  */
-reportRouter.get('/team-performance', authorize('ADMIN'), getTeamPerformance);
+reportRouter.get('/team-performance', authorize('ADMIN'), cacheRoute(120), getTeamPerformance);
 
 module.exports = reportRouter;

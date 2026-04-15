@@ -26,6 +26,7 @@ const {
   sosRules,
   validate,
 } = require('../middleware/validationMiddleware');
+const { cacheRoute, clearCache, clearCachePattern } = require('../middleware/cacheMiddleware');
 
 /**
  * @swagger
@@ -54,7 +55,7 @@ const {
  *       404:
  *         description: Không tìm thấy sự cố
  */
-router.get('/track/:code', trackIncidentByCode);
+router.get('/track/:code', cacheRoute(30), trackIncidentByCode);
 
 // ── PRIVATE ──────────────────────────────────────────────────────
 router.use(protect, checkPasswordChange);
@@ -144,7 +145,7 @@ router.patch('/:id/refuse', authorize('RESCUE'), refuseIncident);
  *       201:
  *         description: SOS gửi thành công, severity CRITICAL
  */
-router.post('/sos', sosLimiter, authorize('CITIZEN'), sosRules, validate, triggerSOS);
+router.post('/sos', sosLimiter, authorize('CITIZEN'), sosRules, validate, clearCachePattern('incidents'), triggerSOS);
 
 /**
  * @swagger
@@ -223,8 +224,8 @@ router.post('/sos', sosLimiter, authorize('CITIZEN'), sosRules, validate, trigge
  *       200:
  *         description: Danh sách sự cố có phân trang
  */
-router.post('/', upload.array('photos', 5), authorize('CITIZEN', 'DISPATCHER'), createIncidentRules, validate, createIncident);
-router.get('/', authorize('DISPATCHER', 'ADMIN'), getAllIncidents);
+router.post('/', upload.array('photos', 5), authorize('CITIZEN', 'DISPATCHER'), createIncidentRules, validate, clearCachePattern('incidents'), createIncident);
+router.get('/', authorize('DISPATCHER', 'ADMIN'), cacheRoute(30), getAllIncidents);
 
 /**
  * @swagger
@@ -286,7 +287,7 @@ router.get('/:id', getIncidentById);
  *       200:
  *         description: Cập nhật thành công
  */
-router.patch('/:id/status', authorize('RESCUE', 'DISPATCHER', 'ADMIN'), updateStatusRules, validate, updateIncidentStatus);
+router.patch('/:id/status', authorize('RESCUE', 'DISPATCHER', 'ADMIN'), updateStatusRules, validate, clearCachePattern('incidents'), updateIncidentStatus);
 
 /**
  * @swagger
@@ -315,6 +316,6 @@ router.patch('/:id/status', authorize('RESCUE', 'DISPATCHER', 'ADMIN'), updateSt
  *       200:
  *         description: Hủy thành công
  */
-router.patch('/:id/cancel', authorize('DISPATCHER', 'ADMIN'), cancelIncident);
+router.patch('/:id/cancel', authorize('DISPATCHER', 'ADMIN'), clearCachePattern('incidents'), cancelIncident);
 
 module.exports = router;

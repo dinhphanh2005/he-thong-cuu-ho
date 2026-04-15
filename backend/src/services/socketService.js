@@ -24,12 +24,23 @@ const initSocketService = (io) => {
 
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       const user = await User.findById(decoded.id)
-        .select('name role rescueTeam isActive')
+        .select('name role rescueTeam isActive currentSessionId')
         .populate('rescueTeam', 'name code zone');
 
       if (!user || !user.isActive) {
         socket.user = null;
         return next();
+      }
+
+      // Kiểm tra session ID — nếu token của phiên cũ thì reject ngay
+      // (user đã login từ thiết bị khác và currentSessionId đã cập nhật)
+      if (decoded.sid && user.currentSessionId && decoded.sid !== user.currentSessionId) {
+        logger.warn(`[socket] Stale session detected: userId=${user._id}, token.sid=${decoded.sid}, db.sid=${user.currentSessionId} — reject`);
+        // Emit trước khi gọi next(error) để client nhận được lý do
+        socket.emit('auth:session-invalidated', {
+          reason: 'Tài khoản đã đăng nhập từ thiết bị khác.',
+        });
+        return next(new Error('SESSION_INVALIDATED'));
       }
 
       socket.user = user;
@@ -105,6 +116,18 @@ const initSocketService = (io) => {
       } catch (err) {
         logger.error(`Socket rescue:updateLocation lỗi: ${err.message}`);
       }
+    });
+
+    socket.on('rescue:arriving-soon', ({ code, distance }) => {
+      if (role !== 'RESCUE') return;
+      io.to(`track:${code}`).emit('incident:status-change', { 
+        message: `Đội cứu hộ sắp đến hiện trường (cách ~${distance}m)` 
+      });
+      // Phát cả incident:updated để citizen lấy dc msg
+      io.emit('incident:updated', {
+        code,
+        message: `Đội cứu hộ sắp đến (cách ~${distance}m)`
+      });
     });
 
     // ==========================================

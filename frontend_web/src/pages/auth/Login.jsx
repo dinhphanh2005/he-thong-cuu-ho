@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { authAPI, canAccessWebRole, clearAuth, storeAuthSession } from '../../services/api';
 
@@ -46,31 +46,38 @@ function ForgotPasswordModal({ onClose }) {
 
   const handleStep1 = async () => {
     if (!email.trim()) { setError('Vui lòng nhập email'); return; }
-    if (!/\S+@\S+\.\S+/.test(email)) { setError('Email không hợp lệ'); return; }
     setLoading(true);
     setError('');
-    // TODO: call API POST /auth/forgot-password { email }
-    await new Promise(r => setTimeout(r, 800)); // simulate API
-    setLoading(false);
-    setStep(2);
+    try {
+      await authAPI.sendOTP(email);
+      setLoading(false);
+      setStep(2);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Không thể liên kết tài khoản');
+      setLoading(false);
+    }
   };
 
   const handleStep2 = () => {
-    if (otp.some(d => !d)) { setError('Vui lòng nhập đủ 4 chữ số OTP'); return; }
-    setError('');
+    if (otp.some(d => !d)) { setError('Vui lòng nhập đủ 6 chữ số OTP'); return; }
     setStep(3);
   };
 
   const handleStep3 = async () => {
-    if (!newPassword || !confirmPassword) { setError('Vui lòng điền đầy đủ'); return; }
-    if (newPassword.length < 6) { setError('Mật khẩu tối thiểu 6 ký tự'); return; }
+    if (!newPassword || !confirmPassword) { setError('Vui lòng điền đủ thông tin'); return; }
     if (newPassword !== confirmPassword) { setError('Mật khẩu xác nhận không khớp'); return; }
+    if (newPassword.length < 6) { setError('Mật khẩu tối thiểu 6 ký tự'); return; }
+    
     setLoading(true);
     setError('');
-    // TODO: call API POST /auth/reset-password { email, otp: otp.join(''), newPassword }
-    await new Promise(r => setTimeout(r, 800));
-    setLoading(false);
-    setStep(4);
+    try {
+      await authAPI.resetPassword(email, otp.join(''), newPassword);
+      setLoading(false);
+      setStep(4);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Không thể đổi mật khẩu');
+      setLoading(false);
+    }
   };
 
   const titles = {
@@ -221,10 +228,14 @@ function RequestAccessModal({ onClose }) {
     if (!/\S+@\S+\.\S+/.test(email)) { setError('Email không hợp lệ'); return; }
     setLoading(true);
     setError('');
-    // TODO: call API POST /auth/request-access { email }
-    await new Promise(r => setTimeout(r, 800));
-    setLoading(false);
-    setStep(2);
+    try {
+      await authAPI.requestAccess({ email, name: email.split('@')[0] });
+      setLoading(false);
+      setStep(2);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Không thể gửi yêu cầu');
+      setLoading(false);
+    }
   };
 
   return (
@@ -280,17 +291,101 @@ function RequestAccessModal({ onClose }) {
   );
 }
 
+// ─── Two-Factor Authentication Flow ──────────────────────────────────────────
+function TwoFactorModal({ onClose, userId, message, onSuccess }) {
+  const [otp, setOtp] = useState(['', '', '', '', '', '']);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const otpRefs = [useRef(), useRef(), useRef(), useRef(), useRef(), useRef()];
+
+  const handleOtpChange = (index, value) => {
+    if (!/^\d*$/.test(value)) return;
+    const newOtp = [...otp];
+    newOtp[index] = value.slice(-1);
+    setOtp(newOtp);
+    if (value && index < 5) otpRefs[index + 1].current?.focus();
+  };
+
+  const handleOtpKeyDown = (index, e) => {
+    if (e.key === 'Backspace' && !otp[index] && index > 0) {
+      otpRefs[index - 1].current?.focus();
+    } else if (e.key === 'Enter') {
+      handleSubmit();
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (otp.some(d => !d)) { setError('Vui lòng nhập đủ 6 chữ số OTP'); return; }
+    setLoading(true);
+    setError('');
+    try {
+      const { data } = await authAPI.verify2FA(userId, otp.join(''));
+      onSuccess(data);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Xác thực 2FA thất bại');
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose}>
+      <h3 className="text-lg font-bold text-center text-gray-900 mb-6">Xác thực bảo mật</h3>
+      <div className="space-y-4">
+        <div className="flex justify-center gap-2">
+          {otp.map((digit, i) => (
+            <input
+              key={i}
+              ref={otpRefs[i]}
+              type="text"
+              inputMode="numeric"
+              maxLength={1}
+              value={digit}
+              onChange={e => handleOtpChange(i, e.target.value)}
+              onKeyDown={e => handleOtpKeyDown(i, e)}
+              className="w-10 h-10 sm:w-12 sm:h-12 text-center text-lg sm:text-xl font-bold border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+              autoFocus={i === 0}
+            />
+          ))}
+        </div>
+        <p className="text-center text-xs text-gray-500 leading-relaxed">
+          {message || 'Vui lòng kiểm tra email để lấy mã OTP.'}
+        </p>
+        {error && <p className="text-red-500 text-xs text-center">{error}</p>}
+        <button
+          onClick={handleSubmit}
+          disabled={loading}
+          className="w-full bg-[#F1C40F] hover:bg-[#F39C12] disabled:opacity-60 text-gray-900 font-bold py-2.5 rounded-lg transition-all"
+        >
+          {loading ? 'Đang xác thực...' : 'Xác nhận đăng nhập'}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 // ─── Main Login Page ──────────────────────────────────────────────────────────
 export default function Login() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const portal = searchParams.get('portal') || 'dispatch';
+  const sessionReason = searchParams.get('reason');
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [modal, setModal] = useState(null); // null | 'forgot' | 'access'
+  const [modal, setModal] = useState(null); // null | 'forgot' | 'access' | '2fa'
+  const [twoFactorUserId, setTwoFactorUserId] = useState(null);
+  const [twoFactorMessage, setTwoFactorMessage] = useState('');
+  const [sessionBanner, setSessionBanner] = useState(sessionReason || '');
+
+  // Auto-dismiss session banner after 8 seconds
+  useEffect(() => {
+    if (!sessionBanner) return;
+    const timer = setTimeout(() => setSessionBanner(''), 8000);
+    return () => clearTimeout(timer);
+  }, [sessionBanner]);
+
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -311,6 +406,13 @@ export default function Login() {
           user: null,
         });
         navigate('/change-password', { replace: true });
+        return;
+      }
+
+      if (data.require2FA) {
+        setTwoFactorUserId(data.userId);
+        setTwoFactorMessage(data.message);
+        setModal('2fa');
         return;
       }
 
@@ -344,6 +446,29 @@ export default function Login() {
     }
   };
 
+  const handle2FASuccess = (data) => {
+    setModal(null);
+    const user = data.data || null;
+    if (!canAccessWebRole(user)) {
+      clearAuth();
+      setError('Tài khoản này không có quyền truy cập hệ thống');
+      return;
+    }
+
+    storeAuthSession({
+      accessToken: data.accessToken,
+      refreshToken: data.refreshToken,
+      user,
+      mustChangePassword: false,
+    });
+
+    if (user.role === 'ADMIN') {
+      navigate('/admin', { replace: true });
+    } else {
+      navigate('/', { replace: true });
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#F3F4F6] flex flex-col items-center justify-center p-4 font-sans">
       {/* Brand Header */}
@@ -359,6 +484,21 @@ export default function Login() {
       {/* Login Card */}
       <div className="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] w-full max-w-lg p-12 border border-white">
         <h3 className="text-3xl font-bold text-center text-gray-900 mb-10">Đăng nhập</h3>
+
+        {/* Session invalidated banner */}
+        {sessionBanner && (
+          <div className="mb-6 flex items-start gap-3 bg-amber-50 border border-amber-200 text-amber-800 text-sm font-medium px-4 py-3 rounded-xl">
+            <span className="text-amber-500 mt-0.5 shrink-0">⚠️</span>
+            <span className="flex-1">{sessionBanner}</span>
+            <button
+              type="button"
+              onClick={() => setSessionBanner('')}
+              className="text-amber-400 hover:text-amber-600 font-bold ml-2 leading-none"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         <form onSubmit={handleLogin} className="space-y-8">
           <div className="space-y-3">
@@ -413,6 +553,14 @@ export default function Login() {
       {/* Modals */}
       {modal === 'forgot' && <ForgotPasswordModal onClose={() => setModal(null)} />}
       {modal === 'access' && <RequestAccessModal onClose={() => setModal(null)} />}
+      {modal === '2fa' && (
+        <TwoFactorModal
+          onClose={() => setModal(null)}
+          userId={twoFactorUserId}
+          message={twoFactorMessage}
+          onSuccess={handle2FASuccess}
+        />
+      )}
     </div>
   );
 }
