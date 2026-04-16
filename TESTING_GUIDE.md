@@ -1,5 +1,8 @@
 # Hướng dẫn Chạy Kiểm thử — Hệ thống Cứu hộ Giao thông
 
+> [!TIP]
+> Đây là tài liệu hướng dẫn chạy lệnh kiểm thử **Tự động (Automated Testing)** bằng Jest. Để xem kịch bản kiểm thử thủ công và nghiệm thu UI/UX (Manual QA), vui lòng xem file [QA_TEST_PLAN.md](QA_TEST_PLAN.md).
+
 ---
 
 ## 1. Cài đặt (chạy 1 lần duy nhất)

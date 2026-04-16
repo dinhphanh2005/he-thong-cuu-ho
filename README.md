@@ -75,6 +75,7 @@ he-thong-cuu-ho/
 ├── nginx.conf.template                 # Template cấu hình Nginx Server
 ├── README.md                           # Tài liệu tổng quan (File này)
 ├── DEPLOY_GUIDE.md                     # Hướng dẫn Deploy (Docker, VPS)
+├── QA_TEST_PLAN.md                     # Kế hoạch và Kịch bản Kiểm thử Thủ công (QA Manual Testing)
 ├── TESTING_GUIDE.md                    # Hướng dẫn Kiểm thử tự động (Unit Test, Integration Test)
 └── USER_MANUAL.md                      # Hướng dẫn Sử dụng hệ thống cho User, Dispatcher, Admin
 ```
@@ -129,8 +130,9 @@ npm test
 
 ## 📄 Tài liệu tham khảo (Documentation)
 *   [Hướng dẫn Triển khai (Deployment Guide)](DEPLOY_GUIDE.md): Chi tiết đóng gói Docker và deploy VPS.
-*   [Hướng dẫn Testing (Testing Guide)](TESTING_GUIDE.md): Cấu trúc bộ test, coverage và cách chạy.
-*   [Hướng dẫn Sử dụng (User Manual)](USER_MANUAL.md): Chức năng từng màn hình và luồng thao tác.
+*   [Kế hoạch & Hướng dẫn Thực thi Kiểm thử (QA Test Plan)](QA_TEST_PLAN.md): Các bước kiểm thử thủ công và theo dõi TC-1 -> TC-14 trên UI/UX thực tế.
+*   [Hướng dẫn Kiểm thử Tự động (Testing Guide)](TESTING_GUIDE.md): Cấu trúc bộ test code Jest (Testing tự động), coverage và logic chạy nền.
+*   [Hướng dẫn Sử dụng (User Manual)](USER_MANUAL.md): Chức năng từng màn hình và cách sử dụng cho Citizen, Rescue, Dispatcher, Admin.
 
 ---
 © 2026 Traffic Rescue System.
