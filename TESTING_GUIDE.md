@@ -63,25 +63,22 @@ controllers/              |         |          |         |         |
 npx jest tests/official_testcases.test.js --runInBand --verbose
 
 # Nhóm Auth & Authorization
-npx jest tests/auth.test.js --runInBand --verbose
+npx jest tests/auth.test.js tests/authExtra.test.js --runInBand --verbose
 
 # Nhóm Incidents
-npx jest tests/incidents.test.js --runInBand --verbose
+npx jest tests/incidents.test.js tests/incidentExtra.test.js --runInBand --verbose
 
 # Nhóm Rescue Teams
-npx jest tests/rescueTeams.test.js --runInBand --verbose
+npx jest tests/rescueTeams.test.js tests/rescueExtra.test.js --runInBand --verbose
 
-# Nhóm Reports & KPI
-npx jest tests/reports.test.js --runInBand --verbose
+# Nhóm Chat & Notifications & OTP
+npx jest tests/chat.test.js tests/notifications.test.js tests/otp_geo_notification.test.js --runInBand --verbose
 
-# Nhóm Security
-npx jest tests/security.test.js --runInBand --verbose
+# Nhóm Reports, Security, Maintenance & Utils
+npx jest tests/reports.test.js tests/security.test.js tests/maintenance.test.js tests/utils.test.js --runInBand --verbose
 
-# Nhóm Notifications
-npx jest tests/notifications.test.js --runInBand --verbose
-
-# Nhóm Maintenance Mode
-npx jest tests/maintenance.test.js --runInBand --verbose
+# Nhóm Coverage Boost
+npx jest tests/coverage_boost.test.js --runInBand --verbose
 ```
 
 ---
@@ -104,16 +101,16 @@ backend/
     ├── setup.js                    ← MongoDB in-memory + env config
     ├── helpers.js                  ← Factory functions (createUser, createTeam...)
     ├── official_testcases.test.js  ← TC-01 → TC-14 (file báo cáo)
-    ├── auth.test.js
-    ├── incidents.test.js
-    ├── rescueTeams.test.js
-    ├── reports.test.js
-    ├── security.test.js
-    ├── notifications.test.js
-    └── maintenance.test.js
+    ├── auth.test.js / authExtra.test.js
+    ├── incidents.test.js / incidentExtra.test.js
+    ├── rescueTeams.test.js / rescueExtra.test.js
+    ├── chat.test.js / notifications.test.js / otp_geo_notification.test.js
+    ├── reports.test.js / security.test.js / maintenance.test.js
+    ├── utils.test.js
+    └── coverage_boost.test.js
 ```
 
-**Tổng cộng: 8 file test, ~70 test cases**
+**Tổng cộng: 15 file test (Test Suites), 260 test cases**
 
 ---
 
