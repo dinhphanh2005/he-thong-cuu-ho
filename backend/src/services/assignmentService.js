@@ -17,19 +17,19 @@ const autoAssignTeam = async (incident, io) => {
     const maxDistanceBaseMeters = (config.algoSettings?.searchRadiusKm || 5) * 1000;
     const timeoutSec = config.algoSettings?.assignmentTimeoutSec || 35;
     const staleGpsMinutes = 60;
-    
+
     // Tự động mở rộng bán kính sau mỗi lần thử (1x, 2x, 3x base radius)
     const attempts = incident.assignmentAttempts || 0;
     const currentMaxDistanceMeters = maxDistanceBaseMeters * (attempts + 1);
 
-    const FIVE_MIN_AGO = new Date(Date.now() - staleGpsMinutes * 60 * 1000);
+    const staleGpsCutoff = new Date(Date.now() - staleGpsMinutes * 60 * 1000);
     const rejectedIds = (incident.rejectedTeams || []).map(id => id.toString());
     logger.info(`Auto-assign [${incident.code}]: Bắt đầu tìm đội (Lần ${attempts + 1}, R=${currentMaxDistanceMeters/1000}km, rejected=[${rejectedIds}])`);
 
     let nearestTeam = await RescueTeam.findOne({
       status: 'AVAILABLE',
       _id: { $nin: incident.rejectedTeams || [] },
-      lastLocationUpdate: { $gte: FIVE_MIN_AGO },
+      lastLocationUpdate: { $gte: staleGpsCutoff },
       currentLocation: {
         $near: {
           $geometry: { type: 'Point', coordinates: incident.location.coordinates },

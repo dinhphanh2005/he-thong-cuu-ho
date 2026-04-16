@@ -20,7 +20,7 @@ const app = require('./app');
 const connectDB = require('./config/db');
 const { initFirebase } = require('./config/firebase');
 const { initSocketService } = require('./services/socketService');
-const { initAutoAssignQueue } = require('./jobs/autoAssignJob');
+const { initAutoAssignQueue, recoverStuckIncidentsOnStartup, startPeriodicCleanup } = require('./jobs/autoAssignJob');
 const { initDailyReportQueue } = require('./jobs/dailyReportJob');
 const logger = require('./utils/logger');
 
@@ -72,6 +72,12 @@ try {
   logger.warn(`Bull Queue không khởi tạo được (Redis chưa kết nối?): ${err.message}`);
   logger.warn('Hệ thống sẽ chạy không có background jobs — auto-assign vẫn hoạt động đồng bộ');
 }
+
+// ==========================================
+// STARTUP RECOVERY + PERIODIC CLEANUP
+// ==========================================
+recoverStuckIncidentsOnStartup();
+startPeriodicCleanup();
 
 // ==========================================
 // GRACEFUL SHUTDOWN

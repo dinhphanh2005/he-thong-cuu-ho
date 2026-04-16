@@ -1,5 +1,6 @@
 const Bull = require('bull');
 const Incident = require('../models/Incident');
+const RescueTeam = require('../models/RescueTeam');
 const SystemConfig = require('../models/SystemConfig');
 const { autoAssignTeam } = require('../services/assignmentService');
 const { recalculateTeamStatus } = require('../services/teamAvailabilityService');
@@ -222,4 +223,109 @@ const scheduleRetry = async (incidentId) => {
   await addToAssignQueue(incidentId, retryMs);
 };
 
-module.exports = { initAutoAssignQueue, addToAssignQueue, scheduleRetry };
+/**
+ * Startup Recovery: Chạy một lần khi server khởi động.
+ * Mục tiêu:
+ *   1. Tìm tất cả incident OFFERING quá hạn → reset PENDING + re-queue
+ *   2. Tìm tất cả incident PENDING chưa được xử lý → re-queue
+ *   3. Tìm đội bị kẹt PROPOSED không còn incident nào → reset về AVAILABLE/OFFLINE
+ */
+const recoverStuckIncidentsOnStartup = async () => {
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 3000)); // đợi DB kết nối xong
+    logger.info('🔄 [Startup Recovery] Bắt đầu kiểm tra incident bị kẹt...');
+
+    const now = new Date();
+
+    // --- 1. Incidents OFFERING quá hạn ---
+    const stuckOffering = await Incident.find({
+      status: 'OFFERING',
+      offerExpiresAt: { $lt: now },
+    });
+
+    for (const incident of stuckOffering) {
+      logger.warn(`[Startup Recovery] Incident ${incident.code} kẹt OFFERING ${Math.round((now - incident.offerExpiresAt) / 60000)} phút. Reset → PENDING.`);
+      const oldTeamId = incident.offeredTo;
+      if (oldTeamId) {
+        const alreadyRejected = (incident.rejectedTeams || []).some(
+          (id) => id?.toString() === oldTeamId.toString()
+        );
+        if (!alreadyRejected) incident.rejectedTeams.push(oldTeamId);
+      }
+      incident.status = 'PENDING';
+      incident.assignedTeam = null;
+      incident.offeredTo = null;
+      incident.offerExpiresAt = null;
+      incident.timeline.push({
+        status: 'PENDING',
+        updatedBy: null,
+        note: `[Startup Recovery] Offer hết hạn không có phản hồi — re-queue tìm đội mới.`,
+      });
+      await incident.save();
+      if (oldTeamId) await recalculateTeamStatus(oldTeamId);
+      await addToAssignQueue(incident._id.toString(), 2000);
+    }
+
+    // --- 2. Incidents PENDING (chưa assign) bị mồ côi (assignmentAttempts < 3) ---
+    const pendingOrphan = await Incident.find({
+      status: 'PENDING',
+      isEscalated: { $ne: true },
+      assignedTeam: null,
+    });
+
+    for (const incident of pendingOrphan) {
+      logger.info(`[Startup Recovery] Incident ${incident.code} vẫn PENDING — re-queue.`);
+      await addToAssignQueue(incident._id.toString(), 5000);
+    }
+
+    // --- 3. Đội kẹt PROPOSED mà không có OFFERING incident nào tương ứng ---
+    const proposedTeams = await RescueTeam.find({ status: 'PROPOSED' });
+    for (const team of proposedTeams) {
+      const activeOffer = await Incident.findOne({
+        status: 'OFFERING',
+        offeredTo: team._id,
+        offerExpiresAt: { $gt: now },
+      });
+      if (!activeOffer) {
+        logger.warn(`[Startup Recovery] Đội ${team.name} kẹt PROPOSED không có offer hợp lệ → recalculate.`);
+        await recalculateTeamStatus(team._id);
+      }
+    }
+
+    logger.info(`🔄 [Startup Recovery] Hoàn thành: ${stuckOffering.length} OFFERING reset, ${pendingOrphan.length} PENDING re-queue, ${proposedTeams.length} PROPOSED đội kiểm tra.`);
+  } catch (err) {
+    logger.error(`[Startup Recovery] Lỗi: ${err.message}`);
+  }
+};
+
+/**
+ * Periodic Cleanup: chạy mỗi 2 phút để dọn incident/đội bị kẹt trong runtime.
+ * Đây là safety net phòng trường hợp queue job bị drop giữa chừng.
+ */
+const startPeriodicCleanup = () => {
+  const INTERVAL_MS = 2 * 60 * 1000; // 2 phút
+  setInterval(async () => {
+    try {
+      const now = new Date();
+      const stuckOffering = await Incident.find({
+        status: 'OFFERING',
+        offerExpiresAt: { $lt: now },
+      });
+
+      for (const incident of stuckOffering) {
+        logger.warn(`[Periodic Cleanup] Incident ${incident.code} kẹt OFFERING → re-queue fallback.`);
+        await addToAssignQueue(incident._id.toString(), 0);
+      }
+
+      if (stuckOffering.length > 0) {
+        logger.info(`[Periodic Cleanup] Đã re-queue ${stuckOffering.length} incident bị kẹt.`);
+      }
+    } catch (err) {
+      logger.error(`[Periodic Cleanup] Lỗi: ${err.message}`);
+    }
+  }, INTERVAL_MS);
+
+  logger.info('⏱️  Periodic cleanup job khởi động (interval: 2 phút)');
+};
+
+module.exports = { initAutoAssignQueue, addToAssignQueue, scheduleRetry, recoverStuckIncidentsOnStartup, startPeriodicCleanup };
