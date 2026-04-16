@@ -55,15 +55,28 @@ Traffic Rescue System is a comprehensive platform connecting people in traffic i
 *   **Maps**: React Native Maps
 *   **Notification**: Expo Notifications
 
+### CI/CD & DevOps
+*   **Containerization**: Docker, Docker Compose
+*   **Web Server**: Nginx
+*   **CI/CD**: GitHub Actions
+
 ---
 
 ## 📂 Cấu trúc dự án (Project Structure)
 ```text
 he-thong-cuu-ho/
-├── backend/            # API Server, Database, Socket.io
-├── frontend_web/       # Cổng Dispatcher & Admin (React)
-├── frontend_mobile/    # Ứng dụng di động (Expo)
-└── docker-compose.yml  # Đóng gói Docker
+├── .github/workflows/                  # CI/CD workflows (GitHub Actions)
+├── backend/                            # API Server, Database, Socket.io
+├── frontend_web/                       # Cổng Dispatcher & Admin (React)
+├── frontend_mobile/                    # Ứng dụng di động (Expo)
+├── CuuHo_API_Postman_Collection.json   # File thư viện API Postman
+├── docker-compose.yml                  # File cấu hình Docker (môi trường kịch bản Dev/Local)
+├── docker-compose.prod.yml             # File cấu hình Docker (môi trường kịch bản Production)
+├── nginx.conf.template                 # Template cấu hình Nginx Server
+├── README.md                           # Tài liệu tổng quan (File này)
+├── DEPLOY_GUIDE.md                     # Hướng dẫn Deploy (Docker, VPS)
+├── TESTING_GUIDE.md                    # Hướng dẫn Kiểm thử tự động (Unit Test, Integration Test)
+└── USER_MANUAL.md                      # Hướng dẫn Sử dụng hệ thống cho User, Dispatcher, Admin
 ```
 
 ---
@@ -75,6 +88,7 @@ he-thong-cuu-ho/
 *   MongoDB Atlas hoặc Local MongoDB
 *   Redis server
 *   Expo CLI (cho Mobile)
+*   Docker & Docker Compose (cho triển khai Production)
 
 ### 1. Backend Setup
 ```bash
@@ -98,21 +112,25 @@ npm install
 npx expo start
 ```
 
+### 4. Setup bằng Docker (Tùy chọn)
+Tham khảo chi tiết tại `DEPLOY_GUIDE.md` để khởi chạy nhanh toàn bộ môi trường với Docker.
+
 ---
 
 ## 🧪 Kiểm thử (Testing)
-Chạy bộ kiểm thử toàn diện cho Backend:
+Dự án có bộ Test-case đầy đủ bằng Jest. Chạy bộ kiểm thử toàn diện cho Backend:
 ```bash
 cd backend
 npm test
 ```
+*(Tham khảo thêm `TESTING_GUIDE.md` để biết thêm chi tiết).*
 
 ---
 
 ## 📄 Tài liệu tham khảo (Documentation)
-*   [Hướng dẫn Triển khai (Deployment Guide)](DEPLOY_GUIDE.md)
-*   [Kế hoạch Kiểm thử (Test Plan)](ANALYSIS_AND_TEST_PLAN.md)
-*   [Hướng dẫn Testing (Testing Guide)](TESTING_GUIDE.md)
+*   [Hướng dẫn Triển khai (Deployment Guide)](DEPLOY_GUIDE.md): Chi tiết đóng gói Docker và deploy VPS.
+*   [Hướng dẫn Testing (Testing Guide)](TESTING_GUIDE.md): Cấu trúc bộ test, coverage và cách chạy.
+*   [Hướng dẫn Sử dụng (User Manual)](USER_MANUAL.md): Chức năng từng màn hình và luồng thao tác.
 
 ---
 © 2026 Traffic Rescue System.
