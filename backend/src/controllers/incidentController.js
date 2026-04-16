@@ -431,6 +431,11 @@ exports.refuseIncident = async (req, res) => {
   const isAssigned = incident.assignedTeam?.toString() === teamId;
 
   if (!isOffered && !isAssigned) {
+    // Idempotent: nếu incident đã về PENDING (timer/auto-refuse đã xử lý trước),
+    // coi như từ chối thành công để tránh alert lỗi không cần thiết ở mobile
+    if (incident.status === 'PENDING' || incident.status === 'CANCELLED') {
+      return res.status(200).json({ success: true, message: 'Sự cố đã được xử lý trước đó', data: incident });
+    }
     return res.status(403).json({ success: false, message: 'Không có quyền từ chối sự cố này' });
   }
 

@@ -519,17 +519,28 @@ export default function Home({ navigation }: any) {
   };
 
   const handleRefuseIncident = async () => {
-    if (!currentIncident?._id) return;
+    // Dùng ref thay vì state để tránh stale closure khi timer vừa clear incident
+    const incidentToRefuse = currentIncidentRef.current || currentIncident;
+    if (!incidentToRefuse?._id) return;
 
     setSubmittingTask(true);
+    // Clear state ngay lập tức để tránh double-tap gửi 2 request
+    currentIncidentRef.current = null;
+    setCurrentIncident(null);
+    setIncidentStage('IDLE');
+    setTimeLeft(0);
     try {
-      await incidentAPI.refuse(currentIncident._id, 'Đội cứu hộ từ chối tiếp nhận sự cố');
-      setCurrentIncident(null);
-      setIncidentStage('IDLE');
-      setTimeLeft(0);
+      await incidentAPI.refuse(incidentToRefuse._id, 'Đội cứu hộ từ chối tiếp nhận sự cố');
       await loadRescueState();
     } catch (error: any) {
-      Alert.alert('Không thể từ chối sự cố', error.response?.data?.message || 'Vui lòng thử lại');
+      const msg = error.response?.data?.message || '';
+      // Nếu backend báo không có quyền, có nghĩa incident đã được xử lý
+      // (auto-refuse từ timer đã chạy trước) → coi như thành công, không alert
+      if (error.response?.status === 403 || msg.includes('không còn') || msg.includes('không có quyền')) {
+        await loadRescueState();
+        return;
+      }
+      Alert.alert('Không thể từ chối sự cố', msg || 'Vui lòng thử lại');
     } finally {
       setSubmittingTask(false);
     }
